@@ -1,111 +1,190 @@
-# LedgerProof Architecture
+# Architecture
 
 ## 1. System context
 
-LedgerProof is a Django/DRF monolith with a React frontend. It is not a set of finance microservices. The core request path is synchronous because the user expects an immediate answer; optional heavy XLSX exports and benchmark runs may use Celery and Redis.
+LedgerProof is a read-only conversational layer over the organiser-provided MySQL database. The
+finance source contains only `bank`, `account` and `transaction`. Application state, receipts and
+exports are stored outside that source boundary.
 
 ```mermaid
 flowchart LR
-  U[Finance manager / business user] --> FE[React + TypeScript + Vite]
-  FE -->|REST + Idempotency-Key + context version| API[Django REST Framework]
-  API --> ORCH[Question Orchestrator]
-  ORCH --> PRE[Deterministic pre-parser]
-  ORCH --> STATE[Versioned QueryState]
-  ORCH --> LLM[Lightweight structured-output model]
-  PRE --> RES[Semantic, vendor, account and date resolvers]
-  LLM --> RES
-  STATE --> RES
-  RES --> GATE{Ambiguous or unsupported?}
-  GATE -->|Yes| SAFE[Clarification / not-answerable receipt\nNo financial number]
-  GATE -->|No| PLAN[Canonical QueryPlan]
-  PLAN --> COMP[Allow-listed query compiler\nBound parameters only]
-  COMP --> PG[(PostgreSQL)]
-  PG --> FACTS[ComputedFacts + source IDs]
-  FACTS --> CHECKS[Result validators\ncardinality, totals, dates, signs, coverage]
-  CHECKS -->|Required check fails| FAIL[Error receipt\nNo financial number]
-  CHECKS -->|Pass / non-fatal warning| RECEIPT[Immutable AnswerReceipt]
-  RECEIPT --> AUDIT[(Conversation + audit tables)]
-  RECEIPT --> FE
-  SAFE --> FE
-  FAIL --> FE
-  FE --> EVIDENCE[Receipt / Records / Checks / Query / Export]
-  API --> REDIS[(Redis)]
-  REDIS --> CELERY[Celery export/evaluation worker]
-  CELERY --> PG
+    User[Finance user / reviewer] --> React[React + TypeScript web app]
+    React -->|HTTPS JSON, idempotency + context version| DRF[Django REST Framework API]
+    DRF --> Orchestrator[Assistant orchestration service]
+    Orchestrator --> Interpreter[Lightweight model\nInterpretationDraft only]
+    Orchestrator --> Resolver[Deterministic metric/date/filter resolver]
+    Resolver --> Compiler[Allow-listed QueryPlan compiler]
+    Compiler --> MySQL[(MySQL 8\nbank · account · transaction)]
+    MySQL --> Validator[Decimal computation, validation, lineage]
+    Validator --> Privacy[Mask account/UTR + redact narration]
+    Privacy --> Receipt[Immutable AnswerReceipt]
+    Receipt --> Redis[(Redis\nstate · idempotency · receipts)]
+    Receipt --> DRF
+    DRF --> React
+    Orchestrator --> Celery[Celery export/evaluation jobs]
+    Celery --> MySQL
+    Celery --> ObjectStore[(Temporary sanitized exports)]
 ```
+
+The model is not in the database execution path after interpretation. It cannot produce SQL or a
+financial value.
+
+---
 
 ## 2. Trust boundaries
 
-| Boundary | Untrusted input | Required control |
+### Browser boundary
+
+Untrusted user input enters; only sanitized source rows leave. Browser cannot access MySQL, raw
+account numbers or raw UTRs. Official totals come from receipts, not browser aggregation.
+
+### Model-provider boundary
+
+Send only current question, compact sanitized QueryState, supported vocabulary and date anchor.
+Raw account/UTR/description/table dumps are prohibited. Wording calls receive ComputedFacts only.
+
+### Source database boundary
+
+Runtime user has read-only access. Source schema is immutable for the hackathon. `transaction` is
+quoted and session timezone fixed.
+
+### Application-state boundary
+
+Redis contains normalized plans/receipts/state but no raw restricted values. It is not a source of
+finance truth.
+
+### Export boundary
+
+Exports are receipt-scoped, sanitized and hash/count verified before delivery.
+
+---
+
+## 3. Backend components
+
+| Component | Responsibility | Must not do |
 |---|---|---|
-| Browser → API | user text, IDs, filters, cursors | serializers, length/enum checks, idempotency, context version |
-| Model output → domain | malformed/extra fields, invented IDs | closed Pydantic schema, one bounded repair, deterministic resolver |
-| QueryPlan → database | arbitrary fields/joins, injection | allow-listed compiler, bound parameters, read-only role, timeout |
-| Database → answer | duplicate joins, nulls, stale/missing links | result checks, lineage, coverage warnings, exact decimals |
-| Record/model text → browser | HTML/script/formula payloads | text rendering, CSP, CSV/XLSX sanitisation |
-| Receipt → export | dataset drift/recomputation mismatch | source hash/count and immutable snapshot parity |
-| Concurrent turns | stale response/state race | expected context version, request sequence, cancellation |
+| API layer | transport validation, auth/session placeholder, idempotency/context headers | calculate totals |
+| Interpreter | map language to InterpretationDraft | SQL, finance arithmetic, source lookup |
+| Resolver | deterministic metrics/dates/entities/limitations/multi-turn patches | query arbitrary fields |
+| Compiler registry | known SQL + bound parameters | accept model SQL/identifiers |
+| Executor | read-only MySQL execution, Decimal conversion, timeout | call model while DB transaction open |
+| Validator | reconcile results, source count/hash, warnings | hide failed required checks |
+| Privacy | mask/redact/deny restricted fields | reveal raw value on alternate endpoint |
+| Presenter | deterministic or guarded wording | add facts/numbers |
+| Receipt store | immutable evidence and replay predicate | overwrite receipt |
+| State store | versioned QueryState CAS | accept stale writes |
+| Export worker | replay, sanitize, hash/count verify | export browser page/raw sensitive fields |
+| Evaluator | read gold cases and score model/pipeline | expose gold to runtime assistant |
 
-## 3. Backend deployment
+---
 
-```text
-Gunicorn + Uvicorn worker
-  └─ Django ASGI
-      ├─ DRF API
-      ├─ question orchestration and query engine
-      ├─ conversation/audit persistence
-      └─ health/metadata endpoints
+## 4. Request sequence
 
-Celery worker (optional)
-  ├─ large XLSX export
-  └─ offline model benchmark
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant R as React
+    participant A as DRF API
+    participant S as Redis state
+    participant M as Lightweight model
+    participant D as Deterministic resolver/compiler
+    participant DB as MySQL
+    participant V as Validator/privacy
 
-Celery beat is not required unless scheduled benchmark/cleanup tasks are added.
+    U->>R: Ask question
+    R->>A: POST message + idempotency + context version
+    A->>S: Read state / check idempotency
+    A->>M: Question + safe state + schema vocabulary
+    M-->>A: InterpretationDraft (no SQL/value)
+    A->>D: Resolve/validate QueryPlan
+    alt clarification or unsupported
+        D-->>A: Non-execution plan
+        A->>S: CAS state + store receipt
+        A-->>R: AnswerReceipt with no number
+    else executable
+        D->>DB: Bound allow-listed SQL
+        DB-->>D: Decimal aggregate + source metadata
+        D->>V: Validate, hash, sanitize
+        V-->>A: ComputedFacts
+        A->>S: CAS state + immutable receipt
+        A-->>R: Verified/qualified receipt
+    end
 ```
 
-## 4. Data architecture
+---
 
-- PostgreSQL finance tables mirror the CSV fixture.
-- Analytical views encode safe joins and common signed/reconciliation semantics.
-- Application tables store conversations, turns, idempotency, audit metadata, and optional persisted source sets.
-- Runtime reads semantic definitions from versioned configuration.
-- Evaluation gold is isolated from application imports.
+## 5. Data flow and source lineage
 
-## 5. Query architecture
+For an aggregate receipt:
 
-The compiler is a registry of named operations, not generic text-to-SQL. Example names:
+1. aggregate query returns value and count;
+2. source predicate/template/params are normalized and hashed;
+3. source IDs are fetched/streamed in deterministic order and SHA-256 hashed;
+4. validation compares counts/components;
+5. receipt stores plan/template/hash/count/version;
+6. source-record endpoint replays the predicate and sanitizes rows;
+7. export replays and verifies hash/count before completion.
 
-- `completed_payout_total`
-- `completed_payout_breakdown_by_vendor`
-- `posted_vendor_spend_total`
-- `open_reconciliation_list`
-- `open_reconciliation_ageing`
-- `possible_duplicate_payout_pairs`
-- `large_vendor_payout_anomalies`
-- `data_freshness_summary`
+At large scale, source IDs can be hashed in a streaming cursor. Do not load millions of IDs into
+Redis or model context.
 
-Each operation declares allowed metric, dimensions, filters, maximum rows, stable sort, SQL template/function, and validation suite.
+---
 
-## 6. Frontend architecture
+## 6. Deployment topology for the hackathon
 
-- route-level pages own URL state;
-- TanStack Query owns server state;
-- the server QueryState is authoritative;
-- evidence opens through query parameters so refresh/navigation work;
-- generated/reused API types prevent contract drift;
-- official totals are rendered from receipts, never derived from paginated records;
-- request cancellation and stale-response guards are mandatory.
+Minimal:
 
-## 7. Scale path
+- React static build on Vercel/Netlify/Cloudflare Pages;
+- Django/DRF API on Railway/Render/Fly/VM;
+- MySQL managed instance or same private network;
+- Redis managed instance;
+- Celery worker optional for export/evaluation;
+- temporary object storage optional for async exports.
 
-For 20M records:
+All components can also run locally with Docker Compose for the demo.
 
-- maintain selective indexes on company/status/date/vendor/account;
-- aggregate in PostgreSQL;
-- avoid offset pagination;
-- use named plans and statement timeouts;
-- materialise/persist large result lineages when necessary;
-- asynchronously generate large exports;
-- benchmark with actual row counts and `EXPLAIN (ANALYZE, BUFFERS)`.
+The architecture does not require microservices. A modular Django monolith with a separate worker is
+faster and safer for the hackathon.
 
-The bundled scale script is a starting point, not proof of 20M performance.
+---
+
+## 7. Scaling considerations
+
+- MySQL composite indexes match metric/date/account/bank access patterns.
+- Aggregates execute in DB.
+- Keyset pagination prevents deep offset scans.
+- Query timeouts and result caps protect API.
+- Receipt cache avoids repeated identical aggregates for the same dataset version.
+- Small model receives compact schemas/state, not records.
+- Narration search is explicitly constrained/qualified; it is the least scalable feature.
+- Async exports stream rows.
+- Application instances are stateless aside from Redis.
+
+The base fixture is not evidence of 20M-record performance. Use the scale helper and measured plans.
+
+---
+
+## 8. Security controls
+
+- read-only DB user;
+- network/private DB access;
+- bound parameters and identifier allow-lists;
+- centralized masking/redaction;
+- no sensitive fields in model/log/cache/export;
+- escaped React text and CSP;
+- spreadsheet-injection protection;
+- idempotency/rate limits;
+- traceable errors without SQL/data leakage;
+- separate evaluation gold boundary.
+
+---
+
+## 9. Architecture decisions
+
+- React rather than server-rendered UI for interactive evidence panels and stateful chat.
+- Django/DRF for rapid typed API, MySQL integration and clear service modules.
+- Redis rather than finance DB tables for hackathon conversation/receipt state.
+- Deterministic compiler rather than text-to-SQL for grounding and model efficiency.
+- AnswerReceipt as the UI/API unit rather than plain assistant text.
+- MySQL rather than the earlier PostgreSQL plan because the supplied DDL is MySQL-specific.
+- No derived vendor/reconciliation source because source truth does not support it.

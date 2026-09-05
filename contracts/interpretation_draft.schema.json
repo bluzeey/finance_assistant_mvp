@@ -1,172 +1,31 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ledgerproof.local/schemas/interpretation-draft.json",
-  "title": "LedgerProof InterpretationDraft",
+  "$id": "https://ledgerproof.local/contracts/interpretation_draft.schema.json",
+  "title": "InterpretationDraft",
+  "description": "Untrusted structured output produced by a lightweight model before deterministic resolution. It never contains SQL or financial results.",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "intent",
-    "metric_candidate",
-    "entities",
-    "periods",
-    "dimensions",
-    "statuses",
-    "correction_operations",
-    "unsupported_concepts",
-    "ambiguity_notes"
-  ],
+  "required": ["intent", "metric_phrase", "date_phrase", "filter_mentions", "group_phrase", "comparison_phrase", "ambiguities", "unsupported_concepts"],
   "properties": {
-    "intent": {
-      "type": [
-        "string",
-        "null"
-      ],
-      "enum": [
-        "aggregate",
-        "compare",
-        "rank",
-        "list",
-        "lookup",
-        "ageing",
-        "data_health",
-        "anomaly",
-        "definition",
-        "export",
-        null
-      ]
-    },
-    "metric_candidate": {
-      "type": [
-        "string",
-        "null"
-      ],
-      "maxLength": 100
-    },
-    "entities": {
+    "intent": {"enum": ["aggregate", "lookup", "list", "compare", "balance", "account_count", "unknown"]},
+    "metric_phrase": {"type": ["string", "null"], "maxLength": 120},
+    "date_phrase": {"type": ["string", "null"], "maxLength": 120},
+    "filter_mentions": {
       "type": "array",
       "maxItems": 20,
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "type",
-          "text"
-        ],
+        "required": ["kind", "raw_value"],
         "properties": {
-          "type": {
-            "enum": [
-              "vendor",
-              "account",
-              "department",
-              "cost_center",
-              "project",
-              "transaction",
-              "payout",
-              "status"
-            ]
-          },
-          "text": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          }
+          "kind": {"enum": ["bank", "account", "entity", "program", "transaction_type", "description", "reference", "utr", "transaction_id", "amount"]},
+          "raw_value": {"type": "string", "maxLength": 256}
         }
       }
     },
-    "periods": {
-      "type": "array",
-      "maxItems": 4,
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "text",
-          "role"
-        ],
-        "properties": {
-          "text": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "role": {
-            "enum": [
-              "primary",
-              "comparison",
-              "age_anchor"
-            ]
-          }
-        }
-      }
-    },
-    "dimensions": {
-      "type": "array",
-      "maxItems": 5,
-      "items": {
-        "type": "string",
-        "maxLength": 100
-      }
-    },
-    "statuses": {
-      "type": "array",
-      "maxItems": 10,
-      "items": {
-        "type": "string",
-        "maxLength": 100
-      }
-    },
-    "correction_operations": {
-      "type": "array",
-      "maxItems": 10,
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "operation",
-          "field",
-          "value_text"
-        ],
-        "properties": {
-          "operation": {
-            "enum": [
-              "SET",
-              "REPLACE",
-              "ADD",
-              "REMOVE",
-              "CLEAR",
-              "RESET",
-              "REFER_TO_RESULT"
-            ]
-          },
-          "field": {
-            "type": "string",
-            "maxLength": 100
-          },
-          "value_text": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "maxLength": 500
-          }
-        }
-      }
-    },
-    "unsupported_concepts": {
-      "type": "array",
-      "maxItems": 10,
-      "items": {
-        "type": "string",
-        "maxLength": 200
-      }
-    },
-    "ambiguity_notes": {
-      "type": "array",
-      "maxItems": 10,
-      "items": {
-        "type": "string",
-        "maxLength": 300
-      }
-    }
+    "group_phrase": {"type": ["string", "null"], "maxLength": 120},
+    "comparison_phrase": {"type": ["string", "null"], "maxLength": 120},
+    "ambiguities": {"type": "array", "maxItems": 10, "items": {"type": "string", "maxLength": 300}},
+    "unsupported_concepts": {"type": "array", "maxItems": 10, "items": {"type": "string", "maxLength": 200}}
   }
 }

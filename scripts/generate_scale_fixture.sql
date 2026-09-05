@@ -1,47 +1,34 @@
--- Optional performance fixture. Run only in a disposable database after loading the base data.
--- It copies ordinary generated rows while preserving planted edge-case rows and produces
--- roughly :multiplier times the base size. Replace 100 with the desired multiplier.
--- Do not commit a 20M-row CSV to the repository.
-DO $$
-DECLARE
-  multiplier integer := 100;
-BEGIN
-  INSERT INTO transactions (
-    transaction_id, company_id, transaction_date, posting_date, document_date, due_date,
-    transaction_type, status, vendor_id, merchant_name_raw, account_code, department,
-    cost_center, project_code, description, reference_number, signed_amount, currency,
-    is_reversal, reverses_transaction_id, source_system, ingestion_batch_id, ingested_at
-  )
-  SELECT
-    'SCALE-' || gs || '-' || t.transaction_id,
-    t.company_id,
-    t.transaction_date,
-    t.posting_date,
-    t.document_date,
-    t.due_date,
-    t.transaction_type,
-    t.status,
-    t.vendor_id,
-    t.merchant_name_raw,
-    t.account_code,
-    t.department,
-    t.cost_center,
-    t.project_code,
-    t.description,
-    'SCALE-' || gs || '-' || t.reference_number,
-    t.signed_amount,
-    t.currency,
-    false,
-    NULL,
-    t.source_system,
-    'SCALE-' || gs || '-' || t.ingestion_batch_id,
-    t.ingested_at
-  FROM transactions t
-  CROSS JOIN generate_series(1, multiplier - 1) gs
-  WHERE t.transaction_id ~ '^TXN-[0-9]{6}$';
-END $$;
+-- Disposable MySQL scale-test helper. Run only in a throwaway database after loading the
+-- base fixture. It duplicates source rows with deterministic IDs up to the requested size.
+-- This is not a substitute for a measured production benchmark.
 
-ANALYZE transactions;
--- For end-to-end payout and reconciliation load tests, use a dedicated generator that
--- remaps all foreign keys. This lightweight fixture is intended for transaction-query
--- planner and pagination benchmarks only.
+-- Example: create 10 copies of every transaction (~24K rows).
+SET @copies = 10;
+
+WITH RECURSIVE sequence AS (
+    SELECT 1 AS n
+    UNION ALL
+    SELECT n + 1 FROM sequence WHERE n < @copies
+)
+INSERT INTO `transaction` (
+    `transaction_id`, `account_id`, `transaction_date`, `transaction_type`, `description`,
+    `transaction_amount`, `transaction_reference_id`, `utr_number`
+)
+SELECT
+    LEFT(SHA2(CONCAT(t.transaction_id, ':scale:', sequence.n), 256), 36),
+    t.account_id,
+    TIMESTAMPADD(MICROSECOND, sequence.n, t.transaction_date),
+    t.transaction_type,
+    t.description,
+    t.transaction_amount,
+    CASE
+        WHEN t.transaction_reference_id IS NULL THEN NULL
+        ELSE LEFT(CONCAT(t.transaction_reference_id, '-S', sequence.n), 64)
+    END,
+    t.utr_number
+FROM `transaction` AS t
+JOIN sequence
+WHERE sequence.n > 1;
+
+-- Measure representative plans with EXPLAIN ANALYZE, cold/warm cache notes, row count,
+-- MySQL version, host resources, p50/p95 timings, and query timeout configuration.

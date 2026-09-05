@@ -1,500 +1,417 @@
 openapi: 3.1.0
 info:
-  title: LedgerProof Finance Assistant API
-  version: 1.0.0
-  description: >-
-    Read-only, grounded financial question-answering API. Financial values are
-    computed in PostgreSQL from an allow-listed QueryPlan and returned with an
-    AnswerReceipt. User text is never compiled directly into SQL.
+  title: LedgerProof / Tiby Finance Assistant API
+  version: 2.0.0
+  description: |
+    Contract for a grounded finance assistant over the organiser-provided MySQL
+    tables `bank`, `account`, and `transaction`. Every assistant response is an
+    AnswerReceipt. Unsupported source concepts return no numeric answer.
 servers:
-  - url: http://localhost:8000
-security: []
+  - url: http://localhost:8000/api/v1
+    description: Local Django development server
 tags:
-  - name: System
+  - name: Assistant
+  - name: Finance data
   - name: Metadata
-  - name: Conversations
-  - name: Queries
-  - name: Explorer
-  - name: Reconciliation
-  - name: Data Health
   - name: Evaluation
 paths:
-  /health:
+  /metadata:
     get:
-      tags: [System]
-      operationId: health
+      tags: [Metadata]
+      operationId: getMetadata
+      summary: Return dataset scope, version, freshness and supported capabilities.
       responses:
         '200':
-          description: Service health
+          description: Dataset metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Metadata'
+  /banks:
+    get:
+      tags: [Finance data]
+      operationId: listBanks
+      summary: List canonical banks present in the source table.
+      responses:
+        '200':
+          description: Banks.
           content:
             application/json:
               schema:
                 type: object
-                required: [status, database, dataset_version]
+                required: [results]
                 properties:
-                  status: {type: string, const: ok}
-                  database: {type: string, enum: [ok, degraded]}
-                  dataset_version: {type: string}
-  /api/v1/meta:
-    get:
-      tags: [Metadata]
-      operationId: getMeta
-      responses:
-        '200':
-          description: Company, dataset, metric, and UI metadata
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MetaResponse'
-  /api/v1/glossary:
-    get:
-      tags: [Metadata]
-      operationId: listGlossary
-      parameters:
-        - $ref: '#/components/parameters/Search'
-      responses:
-        '200':
-          description: Metric, field, account, and vendor glossary
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [items]
-                properties:
-                  items:
+                  results:
                     type: array
-                    items: {type: object, additionalProperties: true}
-  /api/v1/conversations:
+                    items:
+                      $ref: '#/components/schemas/Bank'
+  /accounts:
     get:
-      tags: [Conversations]
-      operationId: listConversations
+      tags: [Finance data]
+      operationId: listAccounts
+      summary: List accounts with masked account numbers.
       parameters:
+        - $ref: '#/components/parameters/BankCode'
+        - $ref: '#/components/parameters/EntityId'
+        - $ref: '#/components/parameters/ProgramId'
         - $ref: '#/components/parameters/Cursor'
-        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/PageSize'
       responses:
         '200':
-          $ref: '#/components/responses/ConversationList'
-    post:
-      tags: [Conversations]
-      operationId: createConversation
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              properties:
-                title: {type: string, minLength: 1, maxLength: 120}
-      responses:
-        '201':
-          description: Created conversation
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/Conversation'}
-  /api/v1/conversations/{conversation_id}:
-    parameters:
-      - $ref: '#/components/parameters/ConversationId'
-    get:
-      tags: [Conversations]
-      operationId: getConversation
-      responses:
-        '200':
-          description: Conversation with turns and explicit query state
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/ConversationDetail'}
-        '404': {$ref: '#/components/responses/NotFound'}
-    delete:
-      tags: [Conversations]
-      operationId: deleteConversation
-      responses:
-        '204': {description: Deleted}
-        '404': {$ref: '#/components/responses/NotFound'}
-  /api/v1/conversations/{conversation_id}/reset:
-    post:
-      tags: [Conversations]
-      operationId: resetConversationContext
-      parameters:
-        - $ref: '#/components/parameters/ConversationId'
-      responses:
-        '200':
-          description: Query state cleared; prior turns remain in audit history
+          description: Masked account rows and pagination cursor.
           content:
             application/json:
               schema:
-                type: object
-                required: [conversation_id, query_state]
-                properties:
-                  conversation_id: {type: string, format: uuid}
-                  query_state: {type: 'null'}
-  /api/v1/conversations/{conversation_id}/messages:
-    post:
-      tags: [Conversations, Queries]
-      operationId: createMessage
+                $ref: '#/components/schemas/AccountPage'
+        '400':
+          $ref: '#/components/responses/Problem'
+  /transactions:
+    get:
+      tags: [Finance data]
+      operationId: listTransactions
+      summary: Explore sanitized transaction rows using allow-listed filters.
       parameters:
-        - $ref: '#/components/parameters/ConversationId'
+        - $ref: '#/components/parameters/Start'
+        - $ref: '#/components/parameters/EndExclusive'
+        - $ref: '#/components/parameters/TransactionType'
+        - $ref: '#/components/parameters/BankCode'
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/EntityId'
+        - $ref: '#/components/parameters/ProgramId'
+        - name: transaction_reference_id
+          in: query
+          schema: {type: string, maxLength: 64}
+          description: Exact, case-sensitive plaintext reference lookup.
+        - name: description_contains
+          in: query
+          schema: {type: string, minLength: 2, maxLength: 100}
+          description: Literal unstructured narration search. The response is qualified.
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Sanitized, keyset-paginated transaction records.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionPage'
+        '400':
+          $ref: '#/components/responses/Problem'
+  /data-health:
+    get:
+      tags: [Finance data]
+      operationId: getDataHealth
+      summary: Return freshness, nulls, duplicate risks, FK checks and privacy findings.
+      responses:
+        '200':
+          description: Data-health report.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataHealth'
+  /assistant/messages:
+    post:
+      tags: [Assistant]
+      operationId: sendAssistantMessage
+      summary: Interpret, resolve, execute, validate and return one immutable answer receipt.
+      parameters:
         - name: Idempotency-Key
           in: header
           required: true
           schema: {type: string, minLength: 8, maxLength: 128}
-          description: Prevents duplicate turns when users double-submit or clients retry.
+        - name: If-Match-Context-Version
+          in: header
+          required: true
+          schema: {type: integer, minimum: 0}
+          description: Prevents an older response from overwriting newer conversation context.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: false
-              required: [message]
-              properties:
-                message: {type: string, minLength: 1, maxLength: 4000}
-                client_turn_id: {type: string, format: uuid}
-                expected_context_version: {type: integer, minimum: 0}
+              $ref: '#/components/schemas/AssistantMessageRequest'
       responses:
         '200':
-          description: Existing response for a repeated idempotency key
+          description: Verified, qualified, clarification, unsupported, no-data or validation-failed receipt.
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/MessageResponse'}
-        '201':
-          description: New grounded response
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/MessageResponse'}
+              schema:
+                $ref: '#/components/schemas/AnswerReceipt'
         '409':
-          description: Client context is stale; refresh before applying correction
+          description: Context version is stale.
           content:
             application/problem+json:
-              schema: {$ref: '#/components/schemas/Problem'}
-        '422': {$ref: '#/components/responses/ValidationError'}
-        '429': {$ref: '#/components/responses/RateLimited'}
-  /api/v1/queries/{query_id}:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /assistant/conversations/{conversation_id}/state:
     get:
-      tags: [Queries]
+      tags: [Assistant]
+      operationId: getConversationState
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema: {type: string, maxLength: 128}
+      responses:
+        '200':
+          description: Authoritative server conversation state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryState'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /assistant/receipts/{query_id}:
+    get:
+      tags: [Assistant]
       operationId: getAnswerReceipt
       parameters:
         - $ref: '#/components/parameters/QueryId'
       responses:
         '200':
-          description: Immutable answer receipt
+          description: Immutable answer receipt.
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/AnswerReceipt'}
-        '404': {$ref: '#/components/responses/NotFound'}
-  /api/v1/queries/{query_id}/records:
+              schema:
+                $ref: '#/components/schemas/AnswerReceipt'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /assistant/receipts/{query_id}/records:
     get:
-      tags: [Queries]
-      operationId: listSourceRecords
+      tags: [Assistant]
+      operationId: getReceiptRecords
+      summary: Re-run the immutable receipt predicate and return sanitized source records.
       parameters:
         - $ref: '#/components/parameters/QueryId'
         - $ref: '#/components/parameters/Cursor'
-        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/PageSize'
       responses:
         '200':
-          description: Cursor-paginated source rows captured by the query lineage
+          description: Receipt-scoped source records.
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/RecordPage'}
-  /api/v1/queries/{query_id}/export:
+              schema:
+                $ref: '#/components/schemas/TransactionPage'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          description: Dataset changed and receipt cannot be reproduced exactly.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+  /assistant/receipts/{query_id}/export:
     get:
-      tags: [Queries]
-      operationId: exportSourceRecords
+      tags: [Assistant]
+      operationId: exportReceiptRecords
+      summary: Export sanitized records matching the immutable receipt.
       parameters:
         - $ref: '#/components/parameters/QueryId'
         - name: format
           in: query
           required: true
-          schema: {type: string, enum: [csv, xlsx]}
+          schema: {enum: [csv, xlsx]}
       responses:
         '200':
-          description: Streamed export generated from the immutable query ID
-          headers:
-            X-Query-Id: {schema: {type: string, format: uuid}}
-            X-Source-Row-Count: {schema: {type: integer}}
-            X-Source-Ids-Hash: {schema: {type: string}}
+          description: Export file. Raw account numbers and UTR values are never included.
           content:
-            text/csv: {schema: {type: string, format: binary}}
+            text/csv:
+              schema: {type: string, format: binary}
             application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
               schema: {type: string, format: binary}
-  /api/v1/explorer/transactions:
-    get:
-      tags: [Explorer]
-      operationId: exploreTransactions
-      parameters:
-        - $ref: '#/components/parameters/Cursor'
-        - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/StartDate'
-        - $ref: '#/components/parameters/EndDateExclusive'
-        - {name: vendor_id, in: query, schema: {type: string}}
-        - {name: account_code, in: query, schema: {type: string}}
-        - {name: status, in: query, schema: {type: string, enum: [posted, voided, draft]}}
-        - $ref: '#/components/parameters/Search'
-      responses:
-        '200':
-          description: Transaction page
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RecordPage'}
-  /api/v1/explorer/payouts:
-    get:
-      tags: [Explorer]
-      operationId: explorePayouts
-      parameters:
-        - $ref: '#/components/parameters/Cursor'
-        - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/StartDate'
-        - $ref: '#/components/parameters/EndDateExclusive'
-        - {name: vendor_id, in: query, schema: {type: string}}
-        - {name: payout_status, in: query, schema: {type: string, enum: [completed, pending, failed, reversed]}}
-        - $ref: '#/components/parameters/Search'
-      responses:
-        '200':
-          description: Payout page
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RecordPage'}
-  /api/v1/reconciliation/open-items:
-    get:
-      tags: [Reconciliation]
-      operationId: listOpenReconciliationItems
-      parameters:
-        - $ref: '#/components/parameters/Cursor'
-        - $ref: '#/components/parameters/Limit'
-        - {name: status, in: query, schema: {type: array, items: {type: string, enum: [unreconciled, partially_reconciled, disputed]}}}
-        - {name: older_than_days, in: query, schema: {type: integer, minimum: 0, maximum: 3650}}
-        - {name: vendor_id, in: query, schema: {type: string}}
-      responses:
-        '200':
-          description: Open reconciliation records and total open amount
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - {$ref: '#/components/schemas/RecordPage'}
-                  - type: object
-                    properties:
-                      total_open_amount: {$ref: '#/components/schemas/MoneyString'}
-  /api/v1/data-health:
-    get:
-      tags: [Data Health]
-      operationId: getDataHealth
-      responses:
-        '200':
-          description: Dataset freshness, coverage, integrity, duplicate, and quality checks
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/DataHealthResponse'}
-  /api/v1/evaluation/cases:
-    get:
-      tags: [Evaluation]
-      operationId: listEvaluationCases
-      description: Enabled only in local/demo mode. Gold values are never read by runtime query code.
-      responses:
-        '200':
-          description: Benchmark case metadata, without answers unless evaluator mode is enabled
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  items: {type: array, items: {type: object}}
-  /api/v1/evaluation/runs:
+        '404':
+          $ref: '#/components/responses/Problem'
+        '410':
+          $ref: '#/components/responses/Problem'
+  /evaluation/runs:
     post:
       tags: [Evaluation]
-      operationId: startEvaluationRun
-      description: Local/demo evaluator endpoint; disable in production-like deployment.
+      operationId: runEvaluation
+      summary: Run the configured model/parser against gold cases outside application runtime.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [model_id, prompt_version]
+              required: [model, prompt_version, case_ids]
               properties:
-                model_id: {type: string}
+                model: {type: string}
                 prompt_version: {type: string}
-                question_ids: {type: array, items: {type: string}}
+                case_ids:
+                  type: array
+                  maxItems: 100
+                  items: {type: string}
       responses:
         '202':
-          description: Evaluation run accepted
+          description: Evaluation accepted.
           content:
             application/json:
               schema:
                 type: object
                 required: [run_id, status]
                 properties:
-                  run_id: {type: string, format: uuid}
-                  status: {type: string, enum: [queued, running]}
+                  run_id: {type: string}
+                  status: {const: queued}
 components:
   parameters:
-    ConversationId:
-      name: conversation_id
-      in: path
-      required: true
-      schema: {type: string, format: uuid}
     QueryId:
       name: query_id
       in: path
       required: true
-      schema: {type: string, format: uuid}
+      schema: {type: string, maxLength: 128}
+    Start:
+      name: start
+      in: query
+      schema: {type: string, format: date-time}
+    EndExclusive:
+      name: end_exclusive
+      in: query
+      schema: {type: string, format: date-time}
+    TransactionType:
+      name: transaction_type
+      in: query
+      schema: {enum: [credit, debit]}
+    BankCode:
+      name: bank_code
+      in: query
+      schema:
+        enum: [HDFC, ICIC, SBIN, UTIB, KKBK, CNRB, UBIN, AUBL, TMBL, RATN]
+    AccountId:
+      name: account_id
+      in: query
+      schema: {type: string, maxLength: 36}
+    EntityId:
+      name: entity_id
+      in: query
+      schema: {type: string, maxLength: 36}
+    ProgramId:
+      name: program_id
+      in: query
+      schema: {type: integer}
     Cursor:
       name: cursor
       in: query
       schema: {type: string}
-    Limit:
-      name: limit
+    PageSize:
+      name: page_size
       in: query
-      schema: {type: integer, minimum: 1, maximum: 500, default: 100}
-    Search:
-      name: search
-      in: query
-      schema: {type: string, maxLength: 200}
-    StartDate:
-      name: start_date
-      in: query
-      schema: {type: string, format: date}
-    EndDateExclusive:
-      name: end_date_exclusive
-      in: query
-      schema: {type: string, format: date}
+      schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+  responses:
+    Problem:
+      description: RFC 9457-style application problem.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
   schemas:
-    MoneyString:
-      type: string
-      pattern: '^-?[0-9]+\.[0-9]{2}$'
-      examples: ['10000874.04']
-    MetaResponse:
+    Bank:
       type: object
-      required: [company, dataset, supported_metrics, supported_examples]
+      additionalProperties: false
+      required: [bank_code, bank_name]
       properties:
-        company:
-          type: object
-          required: [company_id, display_name, currency, timezone, fiscal_year_start_month]
-          properties:
-            company_id: {type: string}
-            display_name: {type: string}
-            currency: {type: string, const: INR}
-            timezone: {type: string, const: Asia/Kolkata}
-            fiscal_year_start_month: {type: integer, const: 4}
-        dataset:
-          type: object
-          required: [version, data_as_of, max_posting_date, freshness_state]
-          properties:
-            version: {type: string}
-            data_as_of: {type: string, format: date}
-            max_posting_date: {type: string, format: date}
-            freshness_state: {type: string, enum: [fresh, stale, unknown]}
-        supported_metrics: {type: array, items: {type: object}}
-        supported_examples: {type: array, items: {type: string}}
-    Conversation:
+        bank_code: {type: string}
+        bank_name: {type: string}
+    Account:
       type: object
-      required: [conversation_id, title, context_version, created_at, updated_at]
+      additionalProperties: false
+      required: [account_id, entity_id, masked_account_number, program_id, available_balance, bank_code, bank_name]
       properties:
-        conversation_id: {type: string, format: uuid}
-        title: {type: string}
-        context_version: {type: integer, minimum: 0}
-        created_at: {type: string, format: date-time}
-        updated_at: {type: string, format: date-time}
-    ConversationDetail:
-      allOf:
-        - {$ref: '#/components/schemas/Conversation'}
-        - type: object
-          required: [query_state, turns]
-          properties:
-            query_state: {type: [object, 'null']}
-            turns:
-              type: array
-              items:
-                type: object
-                required: [turn_id, turn_number, user_message, answer_receipt]
-                properties:
-                  turn_id: {type: string, format: uuid}
-                  turn_number: {type: integer}
-                  user_message: {type: string}
-                  answer_receipt: {$ref: '#/components/schemas/AnswerReceipt'}
-    MessageResponse:
+        account_id: {type: string}
+        entity_id: {type: string}
+        masked_account_number: {type: string, example: '••••••••••9069'}
+        program_id: {type: integer}
+        available_balance: {type: string, pattern: '^-?\d+\.\d{2}$'}
+        bank_code: {type: string}
+        bank_name: {type: string}
+    AccountPage:
       type: object
-      required: [conversation_id, turn_id, context_version, answer_receipt]
+      required: [results, next_cursor]
       properties:
-        conversation_id: {type: string, format: uuid}
-        turn_id: {type: string, format: uuid}
-        context_version: {type: integer}
-        answer_receipt: {$ref: '#/components/schemas/AnswerReceipt'}
-    AnswerReceipt:
-      type: object
-      description: Must conform to contracts/answer_receipt.schema.json.
-      additionalProperties: true
-      required: [schema_version, query_id, status, answer, interpretation, lineage, validation, confidence]
-      properties:
-        schema_version: {type: string, const: 1.0.0}
-        query_id: {type: string, format: uuid}
-        status: {type: string, enum: [verified, qualified, needs_clarification, not_answerable, no_matching_rows, error]}
-        answer: {type: object}
-        interpretation: {type: object}
-        lineage: {type: object}
-        validation: {type: object}
-        confidence: {type: object}
-    RecordPage:
-      type: object
-      required: [items, next_cursor, total_count]
-      properties:
-        items: {type: array, items: {type: object, additionalProperties: true}}
+        results:
+          type: array
+          items: {$ref: '#/components/schemas/Account'}
         next_cursor: {type: [string, 'null']}
-        total_count: {type: integer, minimum: 0}
-    DataHealthResponse:
+    Transaction:
       type: object
-      required: [overall_state, data_as_of, checks]
+      additionalProperties: false
+      required: [transaction_id, account_id, masked_account_number, bank_code, bank_name, entity_id, program_id, transaction_date, transaction_type, description, transaction_amount, transaction_reference_id, masked_utr_number]
       properties:
-        overall_state: {type: string, enum: [healthy, warning, error]}
-        data_as_of: {type: string, format: date}
+        transaction_id: {type: string}
+        account_id: {type: string}
+        masked_account_number: {type: string}
+        bank_code: {type: string}
+        bank_name: {type: string}
+        entity_id: {type: string}
+        program_id: {type: integer}
+        transaction_date: {type: string, format: date-time}
+        transaction_type: {enum: [credit, debit]}
+        description: {type: [string, 'null'], description: Escaped and account-number-redacted narration.}
+        transaction_amount: {type: string, pattern: '^\d+\.\d{2}$'}
+        transaction_reference_id: {type: [string, 'null']}
+        masked_utr_number: {type: [string, 'null']}
+    TransactionPage:
+      type: object
+      required: [results, next_cursor, qualification, receipt_source_row_count]
+      properties:
+        results:
+          type: array
+          items: {$ref: '#/components/schemas/Transaction'}
+        next_cursor: {type: [string, 'null']}
+        qualification: {type: [string, 'null']}
+        receipt_source_row_count: {type: [integer, 'null']}
+    AssistantMessageRequest:
+      type: object
+      additionalProperties: false
+      required: [conversation_id, message_id, text]
+      properties:
+        conversation_id: {type: string, minLength: 1, maxLength: 128}
+        message_id: {type: string, minLength: 1, maxLength: 128}
+        text: {type: string, minLength: 1, maxLength: 2000}
+        locale: {type: string, default: en-IN}
+        timezone: {const: Asia/Kolkata}
+    Metadata:
+      type: object
+      required: [dataset_version, data_as_of, currency, timezone, source_tables, supported_metrics, unsupported_concepts]
+      properties:
+        dataset_version: {const: tiby-finance-fixture-v2.0.0}
+        data_as_of: {type: string, format: date-time}
+        currency: {const: INR}
+        timezone: {const: Asia/Kolkata}
+        source_tables:
+          type: array
+          items: {enum: [bank, account, transaction]}
+        supported_metrics:
+          type: array
+          items: {type: string}
+        unsupported_concepts:
+          type: array
+          items: {type: object}
+    DataHealth:
+      type: object
+      required: [status, data_as_of, row_counts, checks]
+      properties:
+        status: {enum: [healthy, qualified, unhealthy]}
+        data_as_of: {type: string, format: date-time}
+        row_counts: {type: object}
         checks:
           type: array
           items:
             type: object
-            required: [check_id, category, status, label, details, affected_record_count]
+            required: [id, status, detail]
             properties:
-              check_id: {type: string}
-              category: {type: string, enum: [freshness, schema, referential_integrity, coverage, duplicates, precision, reconciliation]}
-              status: {type: string, enum: [pass, warning, fail]}
-              label: {type: string}
-              details: {type: string}
-              affected_record_count: {type: integer, minimum: 0}
-              sample_record_ids: {type: array, items: {type: string}, maxItems: 20}
-    Problem:
-      type: object
-      required: [type, title, status, detail, trace_id]
-      properties:
-        type: {type: string}
-        title: {type: string}
-        status: {type: integer}
-        detail: {type: string}
-        trace_id: {type: string}
-        errors: {type: array, items: {type: object}}
-  responses:
-    ConversationList:
-      description: Conversation list
-      content:
-        application/json:
-          schema:
-            type: object
-            required: [items, next_cursor]
-            properties:
-              items: {type: array, items: {$ref: '#/components/schemas/Conversation'}}
-              next_cursor: {type: [string, 'null']}
-    NotFound:
-      description: Resource not found
-      content:
-        application/problem+json:
-          schema: {$ref: '#/components/schemas/Problem'}
-    ValidationError:
-      description: Invalid request or QueryPlan
-      content:
-        application/problem+json:
-          schema: {$ref: '#/components/schemas/Problem'}
-    RateLimited:
-      description: Rate limit exceeded
-      headers:
-        Retry-After: {schema: {type: integer}}
-      content:
-        application/problem+json:
-          schema: {$ref: '#/components/schemas/Problem'}
+              id: {type: string}
+              status: {enum: [pass, warn, fail]}
+              detail: {type: string}
+    QueryState:
+      $ref: './query_state.schema.json'
+    AnswerReceipt:
+      $ref: './answer_receipt.schema.json'
+    ProblemDetails:
+      $ref: './problem_details.schema.json'

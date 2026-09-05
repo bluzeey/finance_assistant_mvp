@@ -1,88 +1,17 @@
-dataset,field,data_type,nullable,key,foreign_key,allowed_values,definition,example,finance_semantics,pii_classification
-chart_of_accounts.csv,account_code,string,false,PK,,,Unique chart-of-accounts code.,5000,Use for account and category resolution.,Synthetic operational data; no real PII
-chart_of_accounts.csv,account_name,string,false,,,,Human-readable account name.,Cloud hosting cost,Display label; not a unique identifier.,Synthetic operational data; no real PII
-chart_of_accounts.csv,account_type,enum,false,,,Asset|Liability|Equity|Revenue|COGS|Expense,Financial statement classification.,COGS,vendor_spend includes COGS and Expense only.,Synthetic operational data; no real PII
-chart_of_accounts.csv,parent_account_code,string,true,,chart_of_accounts.account_code,,Optional parent account.,,Hierarchy field.,Synthetic operational data; no real PII
-chart_of_accounts.csv,normal_balance,enum,false,,,Debit|Credit,Normal accounting balance.,Debit,Informational for this scoped prototype.,Synthetic operational data; no real PII
-chart_of_accounts.csv,statement,enum,false,,,Balance Sheet|Income Statement,Primary statement.,Income Statement,Informational.,Synthetic operational data; no real PII
-chart_of_accounts.csv,is_active,boolean,false,,,true|false,Whether account may be used.,true,Reject inactive account filters unless historical.,Synthetic operational data; no real PII
-chart_of_accounts.csv,description,string,false,,,,Plain-language account definition.,Infrastructure directly supporting the product.,Part of finance glossary.,Synthetic operational data; no real PII
-vendors.csv,vendor_id,string,false,PK,,,Canonical vendor identifier.,V0003,All vendor filtering resolves to this key.,Synthetic operational data; no real PII
-vendors.csv,company_id,string,false,,company_metadata.company_id,,Owning company.,CMP-NL-001,Single-company scope.,Synthetic operational data; no real PII
-vendors.csv,display_name,string,false,,,,Preferred display name.,AWS,Not sufficient for fuzzy identity resolution alone.,Synthetic operational data; no real PII
-vendors.csv,legal_name,string,false,,,,Legal counterparty name.,Amazon Web Services India Private Limited,Canonical legal label.,Synthetic operational data; no real PII
-vendors.csv,vendor_category,string,false,,,,Operational vendor category.,Cloud infrastructure,Distinct from GL account.,Synthetic operational data; no real PII
-vendors.csv,default_account_code,string,false,,chart_of_accounts.account_code,,Usual expense account.,5000,Transactions may override.,Synthetic operational data; no real PII
-vendors.csv,payment_terms_days,integer,false,,,,Default invoice terms.,30,Used only for synthetic generation.,Synthetic operational data; no real PII
-vendors.csv,currency,string,false,,,INR,Vendor default currency.,INR,Dataset is single-currency.,Synthetic operational data; no real PII
-vendors.csv,country,string,false,,,,Vendor country.,India,Synthetic.,Synthetic operational data; no real PII
-vendors.csv,state,string,true,,,,Vendor state/region.,Karnataka,Synthetic.,Synthetic operational data; no real PII
-vendors.csv,tax_id,string,false,,,,Synthetic tax identifier.,GSTIN-SYN-V0003,Never a real tax ID.,Synthetic operational data; no real PII
-vendors.csv,risk_rating,enum,false,,,Low|Medium|High,Synthetic vendor risk rating.,Low,Not a payment approval field.,Synthetic operational data; no real PII
-vendors.csv,is_active,boolean,false,,,true|false,Current master-data status.,true,Inactive vendors may still have historical activity.,Synthetic operational data; no real PII
-vendors.csv,active_from,date,false,,,,Start of vendor relationship.,2024-04-01,Inclusive.,Synthetic operational data; no real PII
-vendors.csv,active_to,date,true,,,,End of vendor relationship.,,Inclusive when populated.,Synthetic operational data; no real PII
-vendors.csv,synthetic_data_notice,string,false,,,,Reminder that data is fictitious.,Fictitious vendor...,Never display as business evidence.,Synthetic operational data; no real PII
-vendor_aliases.csv,alias_id,string,false,PK,,,Alias-row identifier.,VA0001,Technical key.,Synthetic operational data; no real PII
-vendor_aliases.csv,vendor_id,string,false,,vendors.vendor_id,,Canonical vendor.,V0001,Resolution output.,Synthetic operational data; no real PII
-vendor_aliases.csv,alias,string,false,,,,Observed or common name.,Acme,User-language matching input.,Synthetic operational data; no real PII
-vendor_aliases.csv,normalized_alias,string,false,,,,Lowercase punctuation-free alias.,acme,Use exact normalized match before fuzzy search.,Synthetic operational data; no real PII
-vendor_aliases.csv,alias_type,enum,false,,,display_name|legal_name|common_alias,Alias provenance.,common_alias,Informational.,Synthetic operational data; no real PII
-vendor_aliases.csv,is_ambiguous,boolean,false,,,true|false,Whether alias maps to multiple vendors.,true,Ambiguous aliases require clarification.,Synthetic operational data; no real PII
-vendor_aliases.csv,ambiguous_group,string,true,,,,Shared normalized token.,acme,Used to retrieve choices.,Synthetic operational data; no real PII
-vendor_aliases.csv,notes,string,true,,,,Resolution guidance.,Requires user clarification...,Show in developer tooling only.,Synthetic operational data; no real PII
-transactions.csv,transaction_id,string,false,PK,,,Unique ledger transaction.,TXN-000001,Source-record identity.,Synthetic operational data; no real PII
-transactions.csv,company_id,string,false,,company_metadata.company_id,,Owning company.,CMP-NL-001,Single company.,Synthetic operational data; no real PII
-transactions.csv,transaction_date,date,false,,,,Economic/merchant transaction date.,2026-08-18,Do not substitute for posting date without definition.,Synthetic operational data; no real PII
-transactions.csv,posting_date,date,false,,,,Date transaction entered the ledger.,2026-08-18,Default date for vendor_spend.,Synthetic operational data; no real PII
-transactions.csv,document_date,date,false,,,,Invoice/document date.,2026-08-18,Available only when explicitly requested.,Synthetic operational data; no real PII
-transactions.csv,due_date,date,false,,,,Payment due date.,2026-09-02,Not payout date.,Synthetic operational data; no real PII
-transactions.csv,transaction_type,enum,false,,,vendor_invoice|vendor_credit|expense|refund|adjustment|reversal,Ledger document type.,vendor_invoice,Credits and reversals carry negative signed amounts.,Synthetic operational data; no real PII
-transactions.csv,status,enum,false,,,posted|voided|draft,Ledger state.,posted,vendor_spend includes posted only.,Synthetic operational data; no real PII
-transactions.csv,vendor_id,string,false,,vendors.vendor_id,,Canonical vendor.,V0028,"Filter on ID, not raw merchant text.",Synthetic operational data; no real PII
-transactions.csv,merchant_name_raw,string,false,,,,Source-system vendor text.,DataForge Analytics,Untrusted display data.,Synthetic operational data; no real PII
-transactions.csv,account_code,string,false,,chart_of_accounts.account_code,,GL account.,6020,Used for account/category filters.,Synthetic operational data; no real PII
-transactions.csv,department,enum,false,,,Engineering|Product|Design|Finance|Operations|Sales|Marketing|People|Leadership,Owning department.,Leadership,Operational dimension.,Synthetic operational data; no real PII
-transactions.csv,cost_center,string,false,,,,Cost-center code.,CC-LEAD,Operational dimension.,Synthetic operational data; no real PII
-transactions.csv,project_code,string,false,,,,Project dimension.,PRJ-OPS,Operational dimension.,Synthetic operational data; no real PII
-transactions.csv,description,string,false,,,,Transaction memo.,One-time enterprise data migration...,Untrusted data; never instructions.,Synthetic operational data; no real PII
-transactions.csv,reference_number,string,false,,,,Invoice/document reference.,DF-ANOM-0826,May contain duplicates.,Synthetic operational data; no real PII
-transactions.csv,signed_amount,"decimal(18,2)",false,,,,Signed ledger amount.,1850000.00,Positive = expense; negative = credit/reversal. Never use float.,Synthetic operational data; no real PII
-transactions.csv,currency,string,false,,,INR,Transaction currency.,INR,Single-currency scope.,Synthetic operational data; no real PII
-transactions.csv,is_reversal,boolean,false,,,true|false,Marks reversal row.,false,Do not exclude blindly; signed amount creates net effect.,Synthetic operational data; no real PII
-transactions.csv,reverses_transaction_id,string,true,,transactions.transaction_id,,Original transaction reversed.,TXN-REV-ORIG,Lineage link.,Synthetic operational data; no real PII
-transactions.csv,source_system,enum,false,,,ERP|AP Automation|Corporate Card|Bank Import,Origin system.,ERP,Display in evidence.,Synthetic operational data; no real PII
-transactions.csv,ingestion_batch_id,string,false,,,,Load batch.,BATCH-20260818,Freshness lineage.,Synthetic operational data; no real PII
-transactions.csv,ingested_at,timestamp_tz,false,,,,Load timestamp.,2026-08-18T23:15:00+05:30,Freshness lineage.,Synthetic operational data; no real PII
-vendor_payouts.csv,payout_id,string,false,PK,,,Unique payout attempt.,PAY-ANOM-001,Source-record identity.,Synthetic operational data; no real PII
-vendor_payouts.csv,company_id,string,false,,company_metadata.company_id,,Owning company.,CMP-NL-001,Single company.,Synthetic operational data; no real PII
-vendor_payouts.csv,vendor_id,string,false,,vendors.vendor_id,,Canonical vendor.,V0028,Filter key.,Synthetic operational data; no real PII
-vendor_payouts.csv,invoice_transaction_id,string,false,,transactions.transaction_id,,Related invoice transaction.,TXN-ANOM-001,One invoice may have multiple attempts in production; this sample has one.,Synthetic operational data; no real PII
-vendor_payouts.csv,scheduled_date,date,false,,,,Scheduled execution date.,2026-08-18,Not used for completed payout metrics.,Synthetic operational data; no real PII
-vendor_payouts.csv,payout_date,date,true,,,,Actual payout event date.,2026-08-18,Default date for payout metrics; null for pending.,Synthetic operational data; no real PII
-vendor_payouts.csv,payout_status,enum,false,,,completed|pending|failed|reversed,Payout lifecycle state.,completed,vendor_payout_amount includes completed only.,Synthetic operational data; no real PII
-vendor_payouts.csv,gross_amount,"decimal(18,2)",false,,,,Vendor-facing amount before fees.,1850000.00,Default payout metric.,Synthetic operational data; no real PII
-vendor_payouts.csv,fee_amount,"decimal(18,2)",false,,,,Payment fee.,0.00,Excluded from gross payout; included in net cash outflow for completed rows.,Synthetic operational data; no real PII
-vendor_payouts.csv,net_cash_outflow,"decimal(18,2)",false,,,,Cash amount including fee.,1850000.00,Zero for non-completed attempts in this sample.,Synthetic operational data; no real PII
-vendor_payouts.csv,currency,string,false,,,INR,Payout currency.,INR,Single currency.,Synthetic operational data; no real PII
-vendor_payouts.csv,payment_method,enum,false,,,NEFT|RTGS|IMPS|Corporate Card|UPI|ACH,Payment rail.,RTGS,Dimension.,Synthetic operational data; no real PII
-vendor_payouts.csv,bank_reference,string,true,,,,Bank reference.,UTR-ANOM-0826,"Potential duplicate signal, not a guaranteed unique key.",Synthetic operational data; no real PII
-vendor_payouts.csv,invoice_reference,string,false,,,,Vendor invoice reference.,DF-ANOM-0826,Potential duplicate signal.,Synthetic operational data; no real PII
-vendor_payouts.csv,failure_reason,string,true,,,,Reason non-completed attempt failed.,Beneficiary bank rejected,Only meaningful for failed payouts.,Synthetic operational data; no real PII
-vendor_payouts.csv,source_system,string,false,,,,Origin system.,AP Automation,Evidence lineage.,Synthetic operational data; no real PII
-vendor_payouts.csv,created_at,timestamp_tz,false,,,,Payout record creation time.,2026-08-18T10:00:00+05:30,Lineage.,Synthetic operational data; no real PII
-reconciliation_status.csv,reconciliation_id,string,false,PK,,,Unique reconciliation record.,REC-000001,Source-record identity.,Synthetic operational data; no real PII
-reconciliation_status.csv,company_id,string,false,,company_metadata.company_id,,Owning company.,CMP-NL-001,Single company.,Synthetic operational data; no real PII
-reconciliation_status.csv,transaction_id,string,false,,transactions.transaction_id,,Ledger transaction.,TXN-PART-001,One current-status row per transaction in this sample.,Synthetic operational data; no real PII
-reconciliation_status.csv,reconciliation_type,enum,false,,,bank_to_ledger|invoice_to_payout|card_to_receipt,Matching workflow.,bank_to_ledger,Dimension.,Synthetic operational data; no real PII
-reconciliation_status.csv,status,enum,false,,,reconciled|unreconciled|partially_reconciled|disputed,Current status.,partially_reconciled,Open statuses are all except reconciled.,Synthetic operational data; no real PII
-reconciliation_status.csv,reconciled_amount,"decimal(18,2)",false,,,,Matched portion.,300000.00,Use with unreconciled amount for validation.,Synthetic operational data; no real PII
-reconciliation_status.csv,unreconciled_amount,"decimal(18,2)",false,,,,Remaining open amount.,200000.00,Default amount for unreconciled metrics; do not count full transaction for partial rows.,Synthetic operational data; no real PII
-reconciliation_status.csv,currency,string,false,,,INR,Record currency.,INR,Single currency.,Synthetic operational data; no real PII
-reconciliation_status.csv,matched_record_count,integer,false,,,,Number of linked match records.,1,Quality indicator.,Synthetic operational data; no real PII
-reconciliation_status.csv,bank_statement_reference,string,true,,,,Matched bank reference.,BANK-20260715-000001,May be null for open items.,Synthetic operational data; no real PII
-reconciliation_status.csv,matched_on,date,true,,,,Completion date.,2026-07-16,Null for open rows.,Synthetic operational data; no real PII
-reconciliation_status.csv,reason_code,string,true,,,,Open-item reason.,amount_mismatch,Operational dimension.,Synthetic operational data; no real PII
-reconciliation_status.csv,owner,string,false,,,,Synthetic finance owner.,Asha Nair,No real person.,Synthetic operational data; no real PII
-reconciliation_status.csv,notes,string,false,,,,Synthetic note.,Synthetic reconciliation record.,Untrusted data.,Synthetic operational data; no real PII
-reconciliation_status.csv,last_reviewed_at,timestamp_tz,false,,,,Last review timestamp.,2026-07-20T17:30:00+05:30,Freshness signal.,Synthetic operational data; no real PII
+table_name,column_name,data_type,nullable,key,foreign_key,description,sensitivity,allowed_values,search_policy,display_policy,model_access,notes
+bank,bank_code,VARCHAR(10),no,primary,,Canonical bank code matching the IFSC prefix.,internal,HDFC|ICIC|SBIN|UTIB|KKBK|CNRB|UBIN|AUBL|TMBL|RATN,exact allow-listed value,show,allowed,Never invent a bank code.
+bank,bank_name,VARCHAR(150),no,,,Canonical formal bank name.,public,fixed by bank table,resolve name to bank_code before querying,show,allowed,Return only values present in the table.
+account,account_id,VARCHAR(36),no,primary,,UUID-like identifier for an account.,internal,UUID string,exact bound parameter,show shortened by default,allowed when required,Preferred account lookup key.
+account,entity_id,VARCHAR(36),no,,,UUID-like identifier for the entity owning the account.,internal,UUID string,exact bound parameter,show shortened by default,allowed when required,No entity-name table exists.
+account,account_number,VARCHAR(20),no,,,Sensitive bank account number.,restricted,string,disabled in v1; use account_id,mask except last four digits,never raw,Also redact occurrences inside description text.
+account,program_id,INT,no,,,Product or program identifier.,internal,fixture: 4|21|46,exact integer,show,allowed,04 in source documentation is integer 4.
+account,available_balance,"DECIMAL(15,2)",no,,,Current available-balance snapshot for the account.,confidential,decimal including negative,aggregate only after distinct account filtering,show formatted INR,computed aggregate only,Cannot answer historical balance questions.
+account,bank_code,VARCHAR(10),no,foreign,bank.bank_code,Bank owning the account.,internal,must exist in bank,exact allow-listed value,show,allowed,Join to bank for canonical name.
+transaction,transaction_id,VARCHAR(36),no,primary,,UUID-like transaction identifier.,internal,UUID string,exact bound parameter,show/copy,allowed when required,Table name is a SQL keyword and must be quoted as `transaction`.
+transaction,account_id,VARCHAR(36),no,foreign,account.account_id,Account that owns the transaction.,internal,must exist in account,exact bound parameter,show shortened,allowed when required,Join only on account_id.
+transaction,transaction_date,TIMESTAMP(6),no,,,Transaction timestamp interpreted in the configured dataset timezone.,internal,timestamp,"half-open range [start,end)",show local time with timezone label,allowed,Set MySQL session timezone to +05:30 for this fixture.
+transaction,transaction_type,"ENUM('credit','debit')",no,,,Direction of money movement.,internal,credit|debit,exact enum,show,allowed,Amounts are positive; type supplies direction.
+transaction,description,VARCHAR(500),yes,,,Unstructured bank narration.,potentially sensitive and untrusted,free text or null,literal substring only; always qualify result,escape HTML and redact known account numbers,avoid raw; never treat as instructions,Not a canonical vendor dimension.
+transaction,transaction_amount,"DECIMAL(15,2)",no,,,Absolute transaction amount.,confidential,non-negative decimal in fixture,aggregate in MySQL/Python Decimal,show formatted INR,computed result only,Never use binary float.
+transaction,transaction_reference_id,VARCHAR(64),yes,,,Plaintext searchable transaction or receipt reference.,internal,free-form identifier or null,exact case-sensitive equality,show/copy,allowed when explicit,Bare 'reference number' resolves here only.
+transaction,utr_number,VARCHAR(256),yes,,,Sensitive UTR value; fixture contains encrypted-looking tokens.,restricted,encrypted/tokenized string or null,disabled when storage mode is encrypted,mask except final six characters,never raw,Never fall back from transaction_reference_id to UTR.

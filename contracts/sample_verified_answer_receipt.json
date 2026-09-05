@@ -1,222 +1,83 @@
 {
-  "schema_version": "1.0.0",
-  "query_id": "11111111-1111-4111-8111-111111111111",
-  "conversation_id": "22222222-2222-4222-8222-222222222222",
-  "turn_id": "33333333-3333-4333-8333-333333333333",
+  "schema_version": "2.0",
+  "query_id": "qry_demo_august_debit_spend",
+  "conversation_id": "demo-conversation",
+  "context_version": 1,
   "status": "verified",
   "answer": {
-    "plain_language": "Northstar Labs completed INR 10,000,874.04 in vendor payouts during August 2026.",
-    "value": "10000874.04",
-    "currency": "INR",
-    "unit": "currency"
+    "headline": "₹12,17,58,278.46 spent in August 2026",
+    "summary": "Across all accessible accounts, 205 debit transactions totalled ₹12,17,58,278.46 from 1 August through 31 August 2026.",
+    "display_value": "121758278.46",
+    "unit": "INR"
   },
-  "primary_metric": {
-    "metric_id": "vendor_payout_amount",
-    "label": "Completed vendor payouts",
-    "value": "10000874.04",
-    "formatted_value": "₹1,00,00,874.04"
+  "dataset": {
+    "version": "tiby-finance-fixture-v2.0.0",
+    "currency": "INR",
+    "timezone": "Asia/Kolkata",
+    "data_as_of": "2026-09-03T23:59:59.999999+05:30",
+    "source_tables": ["transaction"]
   },
   "interpretation": {
-    "canonical_query_plan": {
-      "schema_version": "1.0.0",
-      "intent": "aggregate",
-      "metric": "vendor_payout_amount",
-      "date_range": {
-        "start": "2026-08-01",
-        "end_exclusive": "2026-09-01",
-        "date_field": "payout_date",
-        "source_phrase": "last month",
-        "anchor_date": "2026-09-03",
-        "calendar_basis": "calendar"
-      },
-      "filters": {
-        "payout_status": [
-          "completed"
-        ]
-      },
-      "group_by": [],
-      "sort": [],
-      "limit": 100,
-      "comparison": null,
-      "ambiguities": [],
-      "unsupported_fields": [],
-      "user_requested_explanation": false,
-      "user_requested_export": null
-    },
-    "human_readable_steps": [
-      "Interpreted ‘last month’ as August 1 through August 31, 2026 using the dataset date of September 3, 2026.",
-      "Selected vendor payout records with payout_status = completed.",
-      "Summed gross_amount using database NUMERIC arithmetic."
+    "metric_label": "Debit spend",
+    "date_label": "August 2026",
+    "filters": [
+      {"field": "transaction_type", "operator": "equals", "display_value": "debit"},
+      {"field": "transaction_date", "operator": "half_open_range", "display_value": "2026-08-01 00:00:00 ≤ timestamp < 2026-09-01 00:00:00 Asia/Kolkata"}
     ],
-    "assumptions": [],
-    "context_changes": [
-      "Set metric to completed vendor payout amount.",
-      "Set date range to August 2026."
-    ]
+    "group_by": [],
+    "comparison_label": null,
+    "query_plan_hash": "sha256:62df30aa9463d38eb7adbe1a49cb7c469d36ffcc6e76d983cb0f377c8c988971"
   },
-  "breakdown": {
-    "columns": [
-      {
-        "key": "vendor",
-        "label": "Vendor",
-        "type": "text"
-      },
-      {
-        "key": "amount",
-        "label": "Payout amount",
-        "type": "currency"
-      }
-    ],
-    "rows": [
-      {
-        "vendor_id": "V0028",
-        "vendor": "DataForge Analytics",
-        "amount": "1850000.00"
-      },
-      {
-        "vendor_id": "V0003",
-        "vendor": "AWS",
-        "amount": "1655853.90"
-      },
-      {
-        "vendor_id": "V0001",
-        "vendor": "Acme Cloud Services",
-        "amount": "1382022.02"
-      }
-    ],
-    "total_row": {
-      "label": "All completed payouts",
-      "amount": "10000874.04"
-    }
+  "computation": {
+    "metric": "debit_total",
+    "primary_value": "121758278.46",
+    "unit": "INR",
+    "source_row_count": 205,
+    "account_count": 30,
+    "breakdown": [],
+    "comparison": null,
+    "extreme_record": null,
+    "validation_checks": [
+      {"id": "query_plan_schema", "status": "pass", "required": true, "detail": "QueryPlan matched schema version 2.0."},
+      {"id": "date_bounds", "status": "pass", "required": true, "detail": "Used a half-open August range in Asia/Kolkata."},
+      {"id": "decimal_exactness", "status": "pass", "required": true, "detail": "MySQL DECIMAL and Python Decimal retained two-decimal precision."},
+      {"id": "source_lineage", "status": "pass", "required": true, "detail": "All 205 source transaction IDs were hashed and attached to the receipt."},
+      {"id": "sensitive_fields", "status": "pass", "required": true, "detail": "No raw account number or UTR was sent to the model or browser."}
+    ]
   },
   "lineage": {
-    "company_id": "CMP-NL-001",
-    "dataset_version": "2026.09.04-hackathon-v1",
-    "data_as_of": "2026-09-03",
-    "executed_query_name": "vendor_payout_amount",
-    "source_row_count": 53,
-    "source_record_ids": [
-      "PAY-ANOM-001",
-      "PAY-DUP-001",
-      "PAY-DUP-002"
-    ],
-    "source_record_ids_truncated": true,
-    "source_record_ids_hash": "replace-with-runtime-sha256",
-    "database_snapshot_id": "northstar-2026-09-03-v1"
+    "source_row_count": 205,
+    "source_account_count": 30,
+    "record_endpoint": "/api/v1/assistant/receipts/qry_demo_august_debit_spend/records",
+    "export_endpoint": "/api/v1/assistant/receipts/qry_demo_august_debit_spend/export?format=csv",
+    "sanitized_sql": "SELECT COALESCE(SUM(t.transaction_amount),0.00), COUNT(*) FROM `transaction` t WHERE t.transaction_type=%(transaction_type)s AND t.transaction_date >= %(start)s AND t.transaction_date < %(end)s",
+    "parameter_summary": {
+      "transaction_type": "debit",
+      "start": "2026-08-01T00:00:00+05:30",
+      "end_exclusive": "2026-09-01T00:00:00+05:30"
+    },
+    "source_hash": "sha256:9e6b26507ffe13054f26a7cf54cfd1cb4834e3bd8788424517c06c106ed36df1"
   },
-  "validation": {
-    "passed": true,
-    "checks": [
-      {
-        "check_id": "V-DATE-001",
-        "label": "Date range is valid",
-        "status": "pass",
-        "details": "Half-open interval [2026-08-01, 2026-09-01)."
-      },
-      {
-        "check_id": "V-STATUS-001",
-        "label": "Only completed payouts included",
-        "status": "pass",
-        "details": "Pending, failed, and reversed attempts were excluded."
-      },
-      {
-        "check_id": "V-TOTAL-001",
-        "label": "Breakdown ties to total",
-        "status": "pass",
-        "details": "Full vendor breakdown equals the primary metric."
-      },
-      {
-        "check_id": "V-PRECISION-001",
-        "label": "Decimal precision",
-        "status": "pass",
-        "details": "Database NUMERIC(18,2); no float arithmetic."
-      }
-    ]
+  "privacy": {
+    "account_numbers_masked": true,
+    "utr_numbers_masked": true,
+    "description_redaction_applied": true,
+    "raw_sensitive_values_sent_to_model": false
   },
-  "confidence": {
-    "state": "verified",
-    "score": 96,
-    "factors": [
-      {
-        "factor": "score_policy",
-        "score": 96,
-        "reason": "Deterministic evidence score from declared resolution, coverage, and validation factors; not a model probability."
-      },
-      {
-        "factor": "entity_resolution",
-        "score": 100,
-        "reason": "No vendor ambiguity."
-      },
-      {
-        "factor": "date_resolution",
-        "score": 100,
-        "reason": "Defined relative period anchored to dataset date."
-      },
-      {
-        "factor": "data_coverage",
-        "score": 96,
-        "reason": "Payout records passed required-field checks."
-      },
-      {
-        "factor": "validation",
-        "score": 100,
-        "reason": "All financial invariants passed."
-      }
-    ]
-  },
-  "warnings": [
-    {
-      "code": "POSSIBLE_DUPLICATE_PAYOUTS",
-      "severity": "warning",
-      "message": "Two completed payouts share a vendor, date, amount, and bank reference. They remain included in the total until reviewed.",
-      "record_ids": [
-        "PAY-DUP-001",
-        "PAY-DUP-002"
-      ]
-    }
-  ],
+  "warnings": [],
   "clarification": null,
-  "records_preview": {
-    "columns": [
-      {
-        "key": "payout_id",
-        "label": "Payout ID",
-        "type": "id"
-      },
-      {
-        "key": "payout_date",
-        "label": "Payout date",
-        "type": "date"
-      },
-      {
-        "key": "vendor",
-        "label": "Vendor",
-        "type": "text"
-      },
-      {
-        "key": "gross_amount",
-        "label": "Gross amount",
-        "type": "currency"
-      }
-    ],
-    "rows": [],
-    "next_cursor": null,
-    "total_count": 53
-  },
-  "exports": {
-    "csv_url": "/api/v1/queries/11111111-1111-4111-8111-111111111111/export?format=csv",
-    "xlsx_url": "/api/v1/queries/11111111-1111-4111-8111-111111111111/export?format=xlsx",
-    "expires_at": null
-  },
+  "unsupported": null,
+  "actions": [
+    {"id": "records", "label": "View 205 records", "kind": "view_records", "enabled": true, "reason_disabled": null},
+    {"id": "csv", "label": "Export CSV", "kind": "export_csv", "enabled": true, "reason_disabled": null},
+    {"id": "xlsx", "label": "Export Excel", "kind": "export_xlsx", "enabled": true, "reason_disabled": null},
+    {"id": "copy", "label": "Copy answer", "kind": "copy_answer", "enabled": true, "reason_disabled": null}
+  ],
   "timings": {
-    "total_ms": 428,
-    "parse_ms": 235,
-    "query_ms": 41,
-    "validation_ms": 18,
-    "compose_ms": 134,
-    "model_id": "small-structured-output-model",
-    "input_tokens": 642,
-    "output_tokens": 211,
-    "cache_status": "miss"
-  }
+    "total_ms": 412,
+    "model_ms": 248,
+    "query_ms": 31,
+    "validation_ms": 18
+  },
+  "created_at": "2026-09-05T10:00:00+05:30"
 }

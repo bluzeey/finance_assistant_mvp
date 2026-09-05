@@ -1,349 +1,393 @@
 # Agent Execution Plan
 
-## 1. Delivery strategy
+## 1. Operating principle
 
-Build the product as a sequence of grounded vertical slices. The earliest slice should answer one manually constructed QueryPlan against PostgreSQL and return a valid AnswerReceipt. Natural-language parsing and visual polish come after the deterministic financial core is proven.
-
-The critical path is:
+Build LedgerProof as a sequence of **grounded vertical slices**. The first correct product is not a
+chatbot; it is a manually constructed QueryPlan that executes against MySQL and returns a verified,
+privacy-safe AnswerReceipt. Add natural-language parsing only after this deterministic path is exact.
 
 ```text
-validated data
-→ database schema/views/indexes
-→ semantic registry and typed QueryPlan
-→ deterministic compiler/executor
-→ result validation and AnswerReceipt
-→ API
-→ Ask UI and evidence panel
-→ parser/entity/date resolution
+source contract + deterministic fixture
+→ MySQL DDL/indexes/loader
+→ semantic registry + JSON contracts
+→ allow-listed query compiler/executor
+→ validation + receipt + privacy mapping
+→ DRF API
+→ React Ask and evidence UI
+→ lightweight parser + resolvers
 → multi-turn state
-→ exports/data health/evaluation
-→ performance and demo polish
+→ explorer/accounts/data health/export/evaluation
+→ performance, accessibility and demo polish
 ```
 
-Multiple agents can work concurrently after contracts are frozen, but only one owner should change a contract at a time.
+The repository is designed for multiple coding agents, but one owner must control each foundational
+contract at a time.
 
-## 2. Roles
+## 2. Non-negotiable source contract
 
-For a small team, one person/agent may hold multiple roles.
+Finance facts may be read only from:
+
+- `bank(bank_code, bank_name)`
+- `account(account_id, entity_id, account_number, program_id, available_balance, bank_code)`
+- `` `transaction`(transaction_id, account_id, transaction_date, transaction_type, description,
+  transaction_amount, transaction_reference_id, utr_number) ``
+
+Application tables may persist conversations and receipts, but agents must not add inferred vendor,
+payout, reconciliation, category, ledger, invoice or historical-balance facts and then treat them as
+source data.
+
+## 3. Work roles
 
 | Role | Owns |
 |---|---|
-| Product/contract owner | scope, metric semantics, acceptance criteria, contract consistency |
-| Data/backend foundation | fixture, PostgreSQL, migrations, loader, repositories |
-| Query engine | QueryPlan, compiler, executor, validators, receipts |
-| Model/interpretation | parser prompt, structured output, entity/date resolution, benchmark |
-| Frontend | application shell, Ask, evidence, Explorer, data health, accessibility |
-| Quality/release | test harness, model evaluation, performance, demo readiness |
+| Product/contract | supported semantics, unsupported boundaries, acceptance evidence |
+| Data/database | fixture generator, MySQL DDL/indexes/loader, scale smoke tests |
+| Query engine | QueryPlan, compiler, executor, validators, AnswerReceipt |
+| Model/resolution | InterpretationDraft, structured prompt, date/entity resolution, benchmark |
+| Backend/API | DRF, conversation state, idempotency, records/export/data-health APIs |
+| Frontend | React shell, Ask, evidence, Transactions, Accounts, accessibility |
+| QA/security/release | privacy scans, gold/E2E/performance tests, demo and packaging |
 
-## 3. Phase 0 — repository and contract freeze
+For a small team, roles can be combined. Ownership is about merge coordination, not headcount.
+
+## 4. Phase 0 — freeze schema, data and contracts
 
 ### Goal
 
-A clean checkout can validate fixtures, start PostgreSQL, and expose agreed contracts before feature code diverges.
+A clean checkout can regenerate and validate the exact source-shaped fixture before application code
+branches.
 
 ### Deliverables
 
-- repo layout and environment files;
-- dataset generation/validation;
-- PostgreSQL schema, views, indexes, loader;
-- semantic metric registry;
-- QueryPlan, AnswerReceipt, and OpenAPI contracts;
-- lint/type/test commands;
-- CI skeleton.
+- organiser schema captured in `docs/PROVIDED_DATABASE_SCHEMA.md`;
+- deterministic 10-bank, 30-account, 2,426-transaction fixture;
+- preserved organiser sample rows;
+- 16 planted edge cases;
+- data dictionary and manifest with hashes;
+- MySQL DDL, indexes and loader;
+- semantic registry and JSON/OpenAPI contracts;
+- root validation/test commands and CI.
 
 ### Exit criteria
 
-- `python scripts/validate_dataset.py` passes;
-- JSON schemas parse;
-- OpenAPI parses;
-- database loads from CSV;
-- no contract naming conflicts;
-- all agents acknowledge invariants in `AGENTS.md`.
+```bash
+python scripts/generate_dataset.py --check
+python scripts/validate_dataset.py
+python scripts/validate_repository.py
+python -m unittest discover -s tests -v
+```
 
-## 4. Phase 1 — deterministic finance core
+All pass, and MySQL loads 10/30/2,426 rows with no FK failures.
+
+## 5. Phase 1 — deterministic query kernel
 
 ### Goal
 
-Answer supported questions from hand-built QueryPlans with exact values and proof, with no model.
+Return exact values and proof from hand-built QueryPlans with no model dependency.
 
-### Work
+### Required query families
 
-- implement enums and Pydantic QueryPlan;
-- load semantic registry from versioned configuration;
-- implement compilers for completed payout aggregate/ranking, vendor spend, open reconciliation, duplicates, anomalies, and freshness;
-- execute in read-only transactions;
-- capture source IDs and stable hashes;
-- implement validation checks;
-- build deterministic answer templates and AnswerReceipt;
-- integrate gold tests in test-only package.
+1. transaction amount total by credit/debit;
+2. net cash flow (`credits - debits`);
+3. transaction count and average amount;
+4. largest transaction;
+5. grouped total/count by bank, program, account, entity, type, day or month;
+6. previous-period comparison;
+7. exact transaction ID lookup;
+8. exact case-sensitive `transaction_reference_id` lookup;
+9. literal description search with qualification;
+10. current available-balance total/account count and grouped views;
+11. no-data result;
+12. unsupported and clarification response constructors.
 
-### First vertical slice
+### First slice
 
-Input:
+Use a QueryPlan equivalent to:
 
 ```json
 {
-  "intent": "aggregate",
-  "metric": "vendor_payout_amount",
+  "schema_version": "2.0",
+  "disposition": "execute",
+  "metric": "debit_total",
   "date_range": {
-    "start": "2026-08-01",
-    "end_exclusive": "2026-09-01",
-    "date_field": "payout_date",
-    "source_phrase": "last month",
-    "anchor_date": "2026-09-03",
-    "calendar_basis": "calendar"
+    "start_inclusive": "2026-08-01T00:00:00+05:30",
+    "end_exclusive": "2026-09-01T00:00:00+05:30",
+    "timezone": "Asia/Kolkata",
+    "label": "August 2026",
+    "source": "explicit"
   },
-  "filters": {"payout_status": ["completed"]},
+  "filters": {"transaction_types": ["debit"]},
   "group_by": [],
+  "comparison": null,
   "sort": [],
   "limit": 100,
-  "comparison": null,
-  "ambiguities": [],
-  "unsupported_fields": []
+  "qualifications": [],
+  "clarification": null,
+  "unsupported_reason": null
 }
 ```
 
-Output: schema-valid receipt with exact August payout total, source count/hash, validation checks, and records endpoint.
+Expected computed facts:
+
+```text
+primary_value = 121758278.46
+source_row_count = 205
+source_account_count = 30
+```
+
+### Implementation sequence
+
+1. Implement exact domain enums and QueryPlan validation.
+2. Load/version semantic metric definitions.
+3. Map every executable combination to a named query template.
+4. Use bound parameters and a read-only MySQL transaction.
+5. Keep monetary results as Decimal/strings.
+6. Capture stable source IDs and source hash.
+7. Run required result checks.
+8. Construct deterministic answer text and AnswerReceipt.
+9. Fetch receipt-bound records with stable cursor ordering.
+10. Add gold tests before adding another query family.
 
 ### Exit criteria
 
-- all deterministic benchmark queries return exact expected values;
-- planted edge cases pass;
-- no numeric answer can bypass validator;
-- runtime import scan proves no gold access;
-- direct API integration tests pass.
+- 100% parity across executable repository benchmark cases;
+- all source hashes and row counts match;
+- duplicate-reference behavior is qualified, not arbitrarily collapsed;
+- required validation failure returns no official number;
+- privacy scan finds no raw account number or UTR.
 
-## 5. Phase 2 — API and minimum frontend
+## 6. Phase 2 — source and assistant APIs
 
 ### Goal
 
-A user can submit a pre-supported question through React and inspect a trustworthy receipt.
+Expose a stable DRF contract that React can integrate without depending on implementation details.
 
-### Backend work
+### Work
 
-- conversation create/list/get/delete/reset;
-- message endpoint with idempotency and context version;
-- query receipt/records/export endpoints;
-- metadata/glossary endpoints;
-- problem+json errors;
-- structured logging.
+- metadata, banks, accounts, transactions and data-health endpoints;
+- message endpoint and persisted app conversation/turn/receipt tables;
+- QueryState/context-version endpoint;
+- receipt, records and export endpoints;
+- cursor codec and stable ordering;
+- RFC-style problem details;
+- idempotency and cancellation-aware request handling;
+- local-only evaluation endpoint.
 
-### Frontend work
+### Important policies
 
-- app shell and routes;
-- Ask empty state, composer, conversation turns;
-- AnswerCard states;
+- source filters are applied before row fetch;
+- page size maximum 100 for interactive endpoints;
+- account numbers and UTRs are privacy mapped before serializers;
+- descriptions are redacted and escaped;
+- exports replay a persisted QueryPlan/receipt, not browser state;
+- no offset pagination for large transaction paths;
+- application table names use `app_` prefix.
+
+### Exit criteria
+
+- OpenAPI contract tests pass;
+- exact duplicate request returns same logical result;
+- reused idempotency key with different content returns conflict;
+- stale context version returns 409;
+- records union/hash equals receipt lineage;
+- CSV/XLSX totals/counts/privacy equal UI receipt.
+
+## 7. Phase 3 — React trust experience
+
+### Goal
+
+A finance user can ask a question, understand the answer immediately and verify it without leaving
+the response.
+
+### Vertical slice
+
+Implement `/ask/:conversationId` with:
+
+- composer and example questions;
+- staged progress;
+- verified AnswerCard;
 - interpretation chips;
-- evidence panel Receipt/Records/Checks/Query tabs;
-- loading and error states;
-- typed API client;
-- desktop and mobile layout.
+- evidence panel with Receipt, Records, Checks, Query and Export;
+- all non-answer/error states;
+- desktop and 360px mobile behavior.
 
-### Temporary parsing policy
+Then implement:
 
-A deterministic parser may support the benchmark phrasing while the model parser is in development, but it must produce QueryPlans rather than return hardcoded answers. Unknown wording must return safe interpretation failure.
-
-### Exit criteria
-
-- end-to-end August payout question works;
-- answer receipt and records are inspectable;
-- no duplicate turns on retry/double click;
-- mobile Ask/evidence flow passes;
-- export can be deferred to Phase 5 if links are hidden rather than broken.
-
-## 6. Phase 3 — lightweight natural-language interpretation
-
-### Goal
-
-Support varied free-form questions while preserving strict grounding.
-
-### Work
-
-- deterministic hints/exact IDs/dates;
-- model provider abstraction;
-- structured InterpretationDraft schema;
-- compact prompt from semantic registry;
-- one bounded schema-repair retry;
-- metric, entity, account, date, and status resolvers;
-- QueryPlan canonicalisation and semantic validation;
-- ambiguity and unsupported-field receipts;
-- benchmark runner with model/prompt version.
-
-### Model-selection process
-
-1. establish candidate size/cost tiers allowed by hackathon credits;
-2. run all benchmark questions at temperature zero or deterministic setting where supported;
-3. score parser fields, final answers, refusals, clarification, latency, and cost;
-4. improve deterministic resolver/pre-parser before increasing model size;
-5. choose the smallest model that clears every safety gate;
-6. document failures and rationale honestly.
+- `/transactions` with URL-backed filters, exact reference search and record detail;
+- `/accounts` with current-snapshot labels and bank/program filters;
+- `/data-health`, `/glossary`, `/about`;
+- `/evaluation` when real benchmark execution exists.
 
 ### Exit criteria
 
-- Acme/ABC clarification is reliable;
-- unsupported forecast/approver questions return no number;
-- prompt-injection fixture is inert;
-- overall and critical-case thresholds are met;
-- selected model rationale is reproducible.
+- no browser arithmetic for official amounts;
+- decimal strings remain unchanged through rendering;
+- stale responses cannot overwrite newer state;
+- source text cannot execute HTML/Markdown;
+- keyboard and screen-reader flows work;
+- unsupported questions display no number, breakdown or misleading export action.
 
-## 7. Phase 4 — multi-turn and correction
+## 8. Phase 4 — lightweight language interpretation
 
 ### Goal
 
-Follow-ups work without hidden context drift.
+Use the smallest evaluated model to transform plain language into a bounded InterpretationDraft,
+then use deterministic code for all resolution and execution.
 
-### Work
+### Pipeline
 
-- typed QueryState;
-- state operations SET/REPLACE/ADD/REMOVE/CLEAR/RESET;
-- pending clarification state;
-- result references for “those”;
-- compare previous period;
-- driver analysis;
-- context chips and change summary;
-- compare-and-swap context version;
-- client stale-response handling.
+```text
+question + canonical QueryState + source metadata
+→ strict model InterpretationDraft
+→ JSON-schema validation
+→ one bounded repair attempt if syntactically invalid
+→ deterministic date/entity/reference resolver
+→ QueryPlan execute | clarify | unsupported
+```
+
+### Resolver order
+
+1. protected/unsupported concept detection;
+2. metric selection;
+3. reference-vs-UTR semantics;
+4. explicit identifiers and bank aliases;
+5. date phrase resolution against data cutoff;
+6. filter/group/comparison resolution;
+7. ambiguity threshold;
+8. QueryPlan semantic validation.
 
 ### Exit criteria
 
-- conversation benchmark C001–C003 passes;
-- correction creates a new immutable receipt;
-- reset clears state server-side;
-- slow request cannot overwrite newer state;
-- the UI always shows canonical current context.
+- model benchmark meets gates in `MODEL_EVALUATION_PLAN.md`;
+- hallucinated fields/operators are rejected;
+- parser never sees raw sensitive values;
+- no SQL or numeric answer appears in model output contract;
+- model outage produces a safe typed error or limited deterministic fallback.
 
-## 8. Phase 5 — verification surfaces
+## 9. Phase 5 — multi-turn state
 
 ### Goal
 
-Make auditability a visible product advantage.
+Follow-up questions change only the intended dimensions and remain auditable.
 
-### Work
+### State operations
 
-- Explorer tabs and row detail;
-- Reconciliation dashboard and ageing;
-- Data Health checks;
-- searchable Glossary;
-- CSV and Excel exports from query ID;
-- source-ID cursor pagination;
-- duplicate/anomaly warnings;
-- verified-zero/qualified behavior from coverage policy.
+- inherit prior metric/filter/date;
+- add or replace filter;
+- remove filter;
+- change grouping/ranking;
+- add comparison;
+- change date range;
+- reset context;
+- clarify ambiguous reference to prior answer.
+
+### Required conversations
+
+- August debit total → compare with July;
+- all August transactions → only HDFC → credits only;
+- grouped bank totals → highest bank → show records;
+- description search → add bank filter → reject “are those vendor payouts?”;
+- exact reference lookup → explain duplicate matches.
 
 ### Exit criteria
 
-- export parity test passes;
-- data-health page exposes planted coverage/duplicate/anomaly conditions;
-- record source date field is marked;
-- no client-side official totals;
-- accessibility and 360 px layouts pass.
+Exact QueryState passes after every benchmark turn; context conflicts and concurrent-response races are
+tested.
 
-## 9. Phase 6 — evaluation, performance, and submission
+## 10. Phase 6 — data health, export and evaluation
 
-### Goal
+### Data health
 
-Produce measured evidence for accuracy, efficiency, UX, and business impact.
+Surface:
+
+- dataset version/cutoff and row counts;
+- FK/enum/amount/date integrity;
+- NULL descriptions;
+- duplicate reference IDs;
+- duplicate-lookalike transactions;
+- malformed UUID-like source ID signal;
+- zero/max amount boundary records;
+- descriptions requiring redaction;
+- unsupported source dimensions.
+
+### Export
+
+- CSV and XLSX;
+- query/receipt metadata sheet or header section;
+- exact decimal cells/strings;
+- source-row parity and source hash;
+- account/UTR masking and narration redaction;
+- spreadsheet-formula-injection neutralisation.
+
+### Evaluation
+
+- local-only runs against visible/private case sets;
+- parser/plan/answer/refusal/latency/cost layers;
+- actual result scorecard; no fabricated accuracy.
+
+## 11. Phase 7 — performance and scale evidence
+
+The problem states a potential 20M-record limit. Do not claim compliance based on the small fixture.
 
 ### Work
 
-- evaluation page and report generation;
-- complete benchmark runs;
-- query-plan diffs;
-- p50/p95 timing instrumentation;
-- scaled database tests and EXPLAIN plans;
-- prompt/model choice note;
+- generate a disposable scale fixture without corrupting source semantics;
+- run representative aggregate, grouped, reference, description and paginated-record queries;
+- capture `EXPLAIN ANALYZE`, p50/p95, rows examined and index use;
+- enforce statement timeout and response row caps;
+- compare cold/warm cache where relevant;
+- document hardware and MySQL configuration.
+
+Prioritise indexes in `database/indexes.sql`; avoid adding an index for every possible combination.
+Literal `description LIKE '%term%'` is qualified and may not scale; optional FULLTEXT behavior must be
+documented and benchmarked separately.
+
+## 12. Phase 8 — hardening and demo release
+
+### P0 hardening
+
+- run privacy scan across API/UI/export/log fixtures;
+- test prompt injection, XSS and spreadsheet injection;
+- test decimal extremes, negative balances and zero baseline comparison;
+- test month boundaries and microseconds;
+- test MySQL reserved-name quoting and session timezone;
+- test no-data/clarify/unsupported/failed states;
+- run keyboard/mobile/responsive checks;
+- ensure CI and clean-checkout instructions pass.
+
+### Release evidence
+
+- working prototype;
 - architecture diagram;
-- README clean-room setup;
-- sample questions/answers;
-- demo script and deck content;
-- release build and fallback plan.
+- setup README;
+- sample questions and captured receipts;
+- measured lightweight-model scorecard;
+- deck and three-minute demo flow;
+- limitation and synthetic-data disclosure.
 
-### Exit criteria
+## 13. Parallelisation map
 
-- all P0 and accepted P1 tests pass;
-- smallest qualifying model selected;
-- model results and dataset size are recorded;
-- README setup succeeds from clean checkout;
-- presentation contains no unsupported claims;
-- three-minute demo is repeatable.
+After Phase 0 contracts are frozen:
 
-## 10. Parallelisation map
+- Agent A: source models, loader and database integration tests;
+- Agent B: QueryPlan/compiler/result validators;
+- Agent C: DRF metadata/source endpoints and problem details;
+- Agent D: React shell/Ask/evidence components using MSW fixtures;
+- Agent E: parser prompt/resolvers/evaluation harness;
+- Agent F: privacy/export/data-health tests.
 
-After Phase 0:
+Merge order follows contracts → deterministic core → API → UI/model. Agents must not independently
+rename metrics or widen source semantics.
 
-- Agent A: database/repositories/compilers
-- Agent B: Pydantic contracts/validators/receipts
-- Agent C: app shell/Ask/evidence components using MSW fixtures
-- Agent D: parser/resolvers/evaluator
+## 14. Handoff checklist for every task
 
-After API shapes stabilise:
+- ticket ID and dependency status;
+- contract/dataset versions used;
+- files changed;
+- exact commands and results;
+- response/SQL/screenshot evidence;
+- privacy and unsupported-behavior impact;
+- assumptions and remaining risks;
+- next unblocked ticket.
 
-- Agent C integrates real API;
-- Agent A builds Explorer/Reconciliation endpoints;
-- Agent B builds data-health checks and exports;
-- Agent D runs benchmark iterations and documents model choice.
-
-Avoid parallel edits to the same contract. Contract changes require owner review and regenerated frontend types.
-
-## 11. Dependency and handoff rules
-
-- A ticket may start only when its `depends_on` tickets are done or the owner documents a temporary mock boundary.
-- Mocks conform exactly to OpenAPI/JSON schemas.
-- A consumer may not patch around an upstream contract defect locally; fix the contract/source.
-- User-visible copy referencing metric semantics must be sourced from or reviewed against `semantic_metrics.yaml`.
-- A ticket touching financial logic must name the relevant benchmark/edge-case tests.
-- A ticket touching async UI must cover cancellation, idempotency, stale response, loading, and error behavior.
-
-## 12. Daily agent loop
-
-1. Run dataset validator and relevant tests.
-2. Pick the highest-priority unblocked ticket.
-3. Read its acceptance criteria and related contracts.
-4. Implement tests first or alongside code.
-5. Integrate a complete path rather than adding disconnected abstractions.
-6. Run focused tests, then broader suite.
-7. update docs/contracts/fixtures if necessary.
-8. Leave a handoff with evidence.
-
-## 13. Product decision log
-
-Create `docs/decisions/ADR-XXXX-title.md` for decisions that change:
-
-- metric definition or date field;
-- ambiguity policy;
-- model/provider choice;
-- QueryPlan or receipt schema;
-- database grain/join;
-- cache/snapshot strategy;
-- confidence/status policy;
-- export lineage;
-- scope.
-
-ADR format: context, decision, alternatives, consequences, tests/migration.
-
-## 14. Minimum submission versus stretch
-
-### Submission-critical
-
-- Ask page;
-- exact supported metrics;
-- source rows/receipt;
-- ambiguity/refusal;
-- multi-turn comparison;
-- data health basics;
-- CSV export;
-- benchmark/model note;
-- architecture and README.
-
-### Stretch only after critical path is green
-
-- Excel export if CSV already works;
-- rich charts;
-- resizable evidence panel;
-- conversation rename;
-- advanced anomaly methods;
-- saved queries;
-- streaming stage events;
-- dark mode;
-- natural-language report builder.
-
-Do not trade grounding for breadth.
+The detailed machine-readable queue is `project_backlog.csv`.

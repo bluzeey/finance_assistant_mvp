@@ -1,2 +1,2 @@
-run_id,model_id,model_size_or_tier,prompt_version,question_id,query_plan_exact,answer_numeric_exact,status_correct,clarification_correct,source_ids_complete,latency_ms,input_tokens,output_tokens,estimated_cost,failure_category,reviewer_notes
-,,,,,,,,,,,,,,,
+model,model_parameters,prompt_version,run_at,cases_total,intent_accuracy,filter_accuracy,date_accuracy,numeric_accuracy,clarification_precision,unsupported_refusal_rate,privacy_pass_rate,multi_turn_accuracy,p50_latency_ms,p95_latency_ms,input_tokens,output_tokens,estimated_cost_inr,notes
+,,,,,,,,,,,,,,,,,,

@@ -1,969 +1,948 @@
-# LedgerProof — Master Product and Implementation Specification
+# Master Product and Implementation Specification
 
-**Document status:** implementation source of truth  
-**Product:** LedgerProof Finance Assistant  
-**Synthetic tenant:** Northstar Labs India Private Limited  
-**Audience:** product, design, frontend, backend, data, model, QA, demo, and coding agents  
-**Stack:** React + TypeScript + Vite; Python + Django + Django REST Framework; PostgreSQL; optional Redis/Celery  
-**Dataset anchor:** 3 September 2026; Asia/Kolkata; INR only
+**Product:** LedgerProof / Finance AI Bot  
+**Hackathon:** TBX — BVP Tech Catalyst  
+**Schema version:** organiser source schema v1; product contract v2.0  
+**Frontend:** React + TypeScript  
+**Backend:** Python + Django + Django REST Framework  
+**Database:** MySQL 8.0+  
+**Fixture:** `tiby-finance-fixture-v2.0.0`
 
-This document defines what to build, why it exists, how every screen behaves, which financial semantics are allowed, how the system prevents fabricated numbers, and how agents should deliver it. Detailed implementation rules live in the linked specialist documents; this file resolves priorities and cross-document behavior.
-
----
-
-## 1. Executive product definition
-
-LedgerProof is a conversational interface over structured finance data. A user asks a plain-language question, the system converts it into a constrained QueryPlan, deterministic code queries the supplied dataset, validation checks run, and the UI presents an answer with an inspectable AnswerReceipt.
-
-The product is not a general financial adviser and not an unrestricted text-to-SQL bot. It supports a deliberately bounded domain:
-
-- posted vendor spend;
-- completed vendor payouts and net cash outflow;
-- transaction and payout lookup;
-- reconciliation status and open amounts;
-- grouping by approved vendor, account, category, department, project, status, date, or payment method;
-- period comparisons;
-- source-record drill-down and export;
-- transparent data-health and simple anomaly/duplicate callouts.
-
-The model never calculates a financial result. It may interpret language and optionally word an explanation from immutable computed facts. A numeric answer is allowed only after deterministic execution and required validation checks succeed.
-
-### 1.1 Winning product narrative
-
-Do not pitch “chat with your finance data.” Many products already do that. Pitch:
-
-> LedgerProof is an auditable natural-language query compiler for finance. Every answer arrives with a receipt that shows what the user asked, what the system interpreted, which records were used, how the number was computed, and whether validation passed.
-
-### 1.2 Success definition
-
-The prototype succeeds when a finance manager can obtain a correct answer faster than navigating a dashboard while retaining enough evidence to verify it. The assistant must also fail safely: ambiguity, missing fields, unavailable periods, validation failures, and unsupported forecasting must never produce plausible-looking numbers.
+This document is the primary source of truth for product behavior. When an implementation detail
+is more specific elsewhere, this document sets the intent and the referenced contract sets the
+wire/field-level shape.
 
 ---
 
-## 2. Challenge-to-product mapping
+## 1. Executive summary
 
-| Hackathon requirement | LedgerProof implementation |
-|---|---|
-| Natural-language query handling | Deterministic pre-parser plus lightweight structured-output model and semantic resolvers |
-| Grounded retrieval | Every answer executes against PostgreSQL using a canonical QueryPlan |
-| Accurate computation | Bound SQL and Python `Decimal`; model never aggregates |
-| Verifiable answers | AnswerReceipt, breakdown, records, checks, query explanation, export |
-| Hallucination guardrails | Unsupported/ambiguous state gates, number provenance check, no model SQL |
-| Lightweight model | Benchmark smallest viable parser; deterministic code carries semantics and arithmetic |
-| Multi-turn | Versioned QueryState and explicit state operations |
-| Explainability | Human-readable interpretation and calculation receipt, not hidden chain of thought |
-| CSV/Excel | Receipt-linked deterministic exports with parity checks |
-| Confidence | Operational states: verified, qualified, needs clarification, not answerable, no matching rows, error |
-| Anomaly callout | Simple declared baseline and unusual-payout rule; never claim fraud |
-| 20M record assumption | Indexing, bounded queries, cursor pagination, scale-test plan, honest measurements |
+Finance users should be able to ask a plain-language question about account and transaction data
+and receive a direct answer without opening a dashboard. The answer must be numerically correct,
+traceable to source records, explicit about interpretation and able to decline questions the source
+cannot support.
 
----
+The supplied database is intentionally narrow: `bank`, `account` and `transaction`. Therefore the
+winning product is not a general finance chatbot. It is a highly reliable natural-language layer for:
 
-## 3. Product principles and non-negotiable invariants
+- debit and credit movement;
+- net cash flow;
+- transaction counts, averages and extremes;
+- bank/account/entity/program filtering and breakdowns;
+- current available-balance snapshots;
+- exact transaction/reference lookup;
+- sanitized source-record drill-down and export;
+- explicit no-answer behavior for missing concepts.
 
-1. **No source, no number.** A financial value must originate in `ComputedFacts` for the same query ID.
-2. **Interpretation before execution.** The exact metric, date field, range, filters, entities, grouping, and comparison must be canonical.
-3. **Ambiguity blocks totals.** “Acme,” “recent,” bare “Q2,” and undefined pronouns require clarification when materially ambiguous.
-4. **The model does not write SQL.** It returns a constrained interpretation draft; deterministic resolvers and compilers own IDs, dates, filters, joins, and arithmetic.
-5. **The model does not calculate.** PostgreSQL/Python compute; the model may only explain supplied facts.
-6. **Every material answer has an AnswerReceipt.** Interpretation, lineage, validation, freshness, and reproducibility are first-class UI.
-7. **Failure is visible, not hidden.** The user sees data gaps, duplicate candidates, missing reconciliation links, stale data, and failed checks.
-8. **Conversation state is typed and versioned.** A later answer cannot be overwritten by a slower earlier request.
-9. **Exports are part of the answer.** They must match the immutable receipt, not a separately recomputed browser table.
-10. **Record text is untrusted.** Descriptions, memos, vendor names, and uploaded strings cannot alter system instructions or render raw HTML.
-11. **Finance uses exact decimals.** PostgreSQL `NUMERIC(18,2)` and Python `Decimal`; never binary float.
-12. **Relative dates use the dataset anchor.** “Last month” means August 2026 in this fixture, even when the app is run later.
-13. **Signed records remain signed.** Credits and reversals reduce posted spend; duplicates remain included and are warned, not silently deleted.
-14. **No inflated claims.** Accuracy, latency, cost, and 20M-record performance require recorded benchmark evidence.
+The language model is a parser, not the calculator. It emits a constrained interpretation draft.
+Deterministic code resolves dates/entities, validates scope and compiles an allow-listed query.
+MySQL/Python `Decimal` computes the facts. A final response is packaged in an immutable
+`AnswerReceipt` that shows the exact range, filters, formula, source count, warnings and records.
 
 ---
 
-## 4. Users, jobs, and product outcomes
+## 2. Product problem
 
-### 4.1 Finance manager / controller
+Today a finance or business user often has to:
 
-Jobs:
+1. know which bank/account/report contains the answer;
+2. translate business language into database terminology;
+3. select the correct date window and transaction direction;
+4. avoid spreadsheet/date/sign errors;
+5. verify a total against hundreds of rows;
+6. wait for finance operations when they lack access or confidence.
 
-- answer recurring spend and payout questions without opening several reports;
-- investigate why totals changed;
-- find unreconciled items and owners;
-- prove a number during close, review, or audit preparation;
-- export exactly the supporting rows.
+A normal chatbot improves the interaction but introduces a worse failure mode: a plausible
+financial number that was not calculated from the data. LedgerProof optimizes for **defensible
+answers**, not maximal answer rate.
 
-Outcome: faster lookup and investigation without sacrificing traceability.
+### Product thesis
 
-### 4.2 FP&A or finance business partner
+A finance assistant is trustworthy when it can prove five things:
 
-Jobs:
-
-- compare periods;
-- rank vendors/categories;
-- isolate drivers of change;
-- produce a defensible first-pass narrative;
-- identify unusual items for follow-up.
-
-Outcome: less manual filtering and more time spent interpreting the business.
-
-### 4.3 Business user outside finance
-
-Jobs:
-
-- ask a bounded factual question in normal language;
-- understand finance terminology;
-- avoid waiting for finance ops to run a report.
-
-Outcome: self-service answers with visible limits and definitions.
-
-### 4.4 Finance operations / reconciliation analyst
-
-Jobs:
-
-- list open, partial, disputed, or aged items;
-- locate source records and references;
-- distinguish the full transaction amount from the remaining open amount;
-- export a follow-up queue.
-
-Outcome: quicker exception handling and fewer mistaken open-balance calculations.
-
-### 4.5 Hackathon judge
-
-Needs to see, quickly:
-
-- exact answer accuracy;
-- proof that the number is data-grounded;
-- safe behavior under ambiguity and missing data;
-- lightweight model efficiency;
-- polished, understandable UI;
-- a believable business impact story.
+- what question it believed the user asked;
+- which source fields and rows it used;
+- which deterministic operation produced the value;
+- which checks passed or warned;
+- why it did not answer when evidence was insufficient.
 
 ---
 
-## 5. Scope
+## 3. Goals and success criteria
 
-### 5.1 P0 supported question families
+### 3.1 P0 goals
 
-1. **Aggregate:** total completed payouts, net cash outflow, posted vendor spend, open reconciliation amount/count.
-2. **Breakdown:** by vendor, category, account, department, cost center, project, date bucket, payment method, or reconciliation status where allowed.
-3. **Ranking:** top/bottom vendors or categories with explicit metric and period.
-4. **Comparison:** previous period, named period, absolute change, and percentage change with zero-baseline safeguards.
-5. **Lookup/list:** transaction, payout, vendor, account, or reconciliation records with filters.
-6. **Ageing:** open items older than a threshold, based on the declared date field and anchor.
-7. **Data quality:** freshness, missing reconciliation rows, duplicate candidates, null/unknown categories.
-8. **Simple anomaly:** declared unusually-large-payout rule with historical baseline.
-9. **Definitions:** explain metric/date/status semantics without inventing data.
-10. **Export:** CSV and XLSX from the immutable answer lineage.
+1. Correctly interpret a well-scoped set of transaction and balance questions.
+2. Calculate every official number in MySQL/Python, never in the model/browser.
+3. Return exact source records and a reproducible receipt for every computed result.
+4. Support natural-language dates and multi-turn refinements.
+5. Clearly distinguish verified, qualified, clarification, unsupported, no-data and validation-failed states.
+6. Mask sensitive fields and neutralize record-based prompt injection/XSS.
+7. Use a lightweight model and record benchmark evidence for the choice.
+8. Remain usable against millions of rows through indexed aggregation and bounded pagination.
 
-### 5.2 P1 after core accuracy
+### 3.2 Success metrics
 
-- richer trend charts;
-- saved questions/favourites;
-- conversation rename/delete;
-- shareable deep links within the demo;
-- asynchronous large export;
-- model comparison page for judges;
-- keyboard command palette.
+The team should report actual results, not target claims, for:
 
-### 5.3 Explicitly out of scope
+- intent/metric exact match;
+- date-range exact match;
+- filter exact match;
+- numeric exact match to two decimals;
+- clarification precision/recall;
+- unsupported-question refusal rate;
+- privacy/redaction pass rate;
+- multi-turn context accuracy;
+- SQL execution success;
+- p50/p95 latency by pipeline stage;
+- input/output tokens and cost per correct answer;
+- export-to-receipt source count/hash equality.
 
-- production authentication, roles, row-level security, or multi-tenancy;
-- real banking/ERP connections or write actions;
-- forecasts, cash-balance predictions, budgets, and scenarios;
-- payroll, employee compensation, tax advice, and statutory filings;
-- multi-currency conversion;
-- arbitrary SQL or every possible finance question;
-- fraud claims or autonomous accounting decisions.
+Recommended minimum launch gates for the demo build:
 
----
+| Dimension | Gate |
+|---|---:|
+| Numeric accuracy on executable gold cases | 100% |
+| Unsupported/refusal cases | 100% no fabricated number |
+| Required privacy tests | 100% |
+| Date/filter/metric plan accuracy | ≥95% or route uncertain cases to clarification |
+| Multi-turn gold accuracy | ≥90% |
+| P95 simple aggregate latency on fixture | <2 seconds |
+| P95 total assistant response with model | <5 seconds |
 
-## 6. Finance semantics
-
-`contracts/semantic_metrics.yaml` is authoritative. The implementation must not infer definitions from display labels alone.
-
-### 6.1 Completed vendor payout amount
-
-- source: `vendor_payouts`;
-- calculation: `SUM(gross_amount)`;
-- mandatory status: `completed`;
-- date field: `payout_date`;
-- excludes pending, failed, reversed attempts and payment fees.
-
-### 6.2 Net cash outflow
-
-- source: `vendor_payouts`;
-- calculation: `SUM(net_cash_outflow)`;
-- completed only;
-- includes payment fees;
-- pending/failed/reversed cash outflow is zero.
-
-### 6.3 Posted vendor spend
-
-- source: posted transactions joined to chart of accounts;
-- accounts: Expense and COGS only;
-- date field: `posting_date`;
-- signed amount is retained;
-- credits and reversals reduce spend;
-- draft/voided/non-expense records are excluded.
-
-### 6.4 Open reconciliation amount
-
-- source: reconciliation status joined to transactions;
-- statuses: unreconciled, partially reconciled, disputed;
-- calculation: `SUM(unreconciled_amount)`;
-- partially reconciled rows contribute only the remaining amount;
-- posted transactions only.
-
-### 6.5 Dates
-
-All ranges are half-open `[start, end_exclusive)`.
-
-- `last month` at data_as_of 2026-09-03 → 2026-08-01 to 2026-09-01;
-- `this month` → 2026-09-01 to 2026-09-04;
-- `last 30 days` → 2026-08-05 to 2026-09-04;
-- `recent` → clarify;
-- bare `Q2` → clarify calendar/fiscal and year;
-- explicit dates are interpreted in Asia/Kolkata.
-
-### 6.6 Vendor resolution
-
-Resolution order:
-
-1. exact vendor ID;
-2. exact unique normalised alias;
-3. exact display/legal name;
-4. bounded fuzzy candidates for clarification only.
-
-`Acme` and `ABC` are intentionally ambiguous. Never auto-select one.
+These are release gates, not claims. Save the measured run in the evaluation results file.
 
 ---
 
-## 7. Information architecture and complete page plan
+## 4. Non-goals
 
-Detailed visual and interaction requirements are in `docs/UI_UX_SPEC.md`. The following matrix defines product ownership and API dependencies.
+- Live banking, ERP, payment or reconciliation integrations
+- Production authentication, RBAC or multi-tenant isolation
+- Write operations, payment initiation or data modification
+- Canonical vendor/payee identification
+- Reconciliation status or outstanding amount
+- Chart-of-accounts/category reporting
+- Historical balances, forecasts or budgets
+- Tax/accounting advice
+- Arbitrary text-to-SQL
+- General web/knowledge answers inside the finance chat
+- Supporting every finance question
 
-| Route | Page | Primary job | Required APIs | P0 |
-|---|---|---|---|---|
-| `/ask` | New question | Start a grounded finance conversation | metadata, conversations, message | Yes |
-| `/ask/:conversationId` | Conversation | Continue, inspect, clarify, correct, export | conversation, message, receipt, records, export | Yes |
-| `/explorer` | Data Explorer | Directly filter and inspect records | explorer transactions/payouts, metadata | Yes |
-| `/reconciliation` | Reconciliation | Investigate open/partial/disputed items | reconciliation list/summary, receipt export | Yes |
-| `/data-health` | Data Health | See freshness, coverage, duplicates, missing links | health summary/details | Yes |
-| `/glossary` | Definitions | Understand metrics, fields, statuses, date behavior | metadata/glossary | Yes |
-| `/evaluation` | Evaluation | Show model efficiency and benchmark evidence | local/demo evaluation endpoints | P1 but high demo value |
-| `/about` | About | Explain scope, architecture, synthetic data, privacy | static/meta | Yes |
-| `*` | Not found | Recover safely | none | Yes |
-
-### 7.1 Global application shell
-
-Required:
-
-- left navigation on desktop, drawer/icon rail on smaller screens;
-- company and synthetic-data labels;
-- data-as-of chip, never a misleading “live” indicator;
-- central content region;
-- route-preserving right evidence panel on desktop;
-- evidence side sheet/bottom sheet on tablet/mobile;
-- persistent visible focus and skip navigation;
-- error boundary with safe recovery.
-
-### 7.2 Ask page
-
-#### Empty state
-
-Show one sentence, supported scope, unsupported scope, and six high-value examples. Avoid decorative marketing content that delays the demo.
-
-#### Composer
-
-- 1–6 visible lines, 4,000-character max;
-- Enter sends; Shift+Enter inserts newline;
-- stable `client_turn_id` and `Idempotency-Key` generated before request;
-- Stop cancels in-flight work;
-- retry reuses idempotency key;
-- draft never appears as successful on network failure;
-- double click/Enter cannot create duplicate turns.
-
-#### Answer states
-
-1. `verified` — number may be shown; all required checks pass.
-2. `qualified` — computed answer may be shown with explicit data-quality warning.
-3. `needs_clarification` — no financial number; show bounded choices.
-4. `not_answerable` — no number; explain missing field/domain and supported alternative.
-5. `no_matching_rows` — the query is valid and sufficiently covered, but no rows match; use explicit verified-zero/no-record language.
-6. `error` — no number; technical or required-validation failure with retry and trace ID.
-
-`cancelled` is a frontend request state rather than an AnswerReceipt status. A cancelled request does not create a successful turn or financial receipt.
-
-#### Answer card
-
-Always includes:
-
-- plain-language result or safe refusal;
-- operational status badge;
-- interpretation chips: metric, exact period, date field, statuses, vendor/account filters, grouping;
-- comparison and breakdown where applicable;
-- source row count and data-as-of;
-- warnings;
-- “View evidence” and export actions;
-- query/trace identifiers in evidence, not visual clutter.
-
-#### Clarification behavior
-
-Choices must be concrete. Example:
-
-> “Acme” matches Acme Cloud Services and Acme Office Supplies. Which vendor did you mean?
-
-User selection sends a normal versioned turn. Do not compute both totals unless the user explicitly asks to compare them.
-
-### 7.3 Evidence panel
-
-Tabs:
-
-- **Receipt:** exact interpretation, metric definition, range, filters, grouping, result, version.
-- **Records:** paginated source rows with stable sorting.
-- **Checks:** passed/warned/failed validation rules and explanations.
-- **Query:** human-readable execution plan; optional named query and redacted bound parameters; never hidden model chain of thought.
-- **Export:** format, row count, source hash, generated time, sanitisation notes.
-
-Opening evidence updates the URL. Refresh/back/forward must work.
-
-### 7.4 Data Explorer
-
-Tabs or mode switch for transactions and payouts.
-
-Required filters:
-
-- exact date range and selected date field;
-- vendor and alias-resolved search;
-- account/category;
-- department/cost center/project;
-- status;
-- amount range;
-- reconciliation status where joined safely.
-
-Rules:
-
-- server owns official totals;
-- browser never sums paginated rows for displayed financial totals;
-- filter state is URL-serialised;
-- cursor pagination;
-- column chooser and reset;
-- empty/filter-error/loading states;
-- row selection opens record detail/evidence;
-- export uses server query definition.
-
-### 7.5 Reconciliation page
-
-Sections:
-
-- KPI strip: open count, open amount, partial, disputed, oldest item;
-- ageing buckets with declared boundaries;
-- filterable table;
-- owner/reason/status breakdown;
-- transaction detail drawer;
-- export of current immutable query.
-
-The UI must distinguish transaction amount, reconciled amount, and remaining amount. Never label full amount as open on a partial item.
-
-### 7.6 Data Health page
-
-Cards and drill-downs:
-
-- dataset version and data-as-of;
-- source max dates and freshness state;
-- row counts;
-- missing reconciliation relationships;
-- null/unknown vendor/category fields;
-- possible duplicate payout pairs;
-- ingestion batch coverage;
-- integrity checks;
-- warning impact on answers.
-
-Every warning explains whether totals include the row and whether the answer remains verified or becomes qualified.
-
-### 7.7 Glossary page
-
-Searchable definitions for:
-
-- metrics;
-- date fields;
-- statuses;
-- accounts/categories;
-- vendor resolution;
-- confidence states;
-- data-health codes.
-
-Glossary content is generated from versioned semantic configuration where possible, not separately hardcoded copy.
-
-### 7.8 Evaluation page
-
-Demo/local only. Shows:
-
-- selected model and prompt version;
-- model size/tier and cost inputs;
-- benchmark totals;
-- intent/metric/date/entity/filter/refusal accuracy;
-- final exact answer accuracy;
-- critical safety pass/fail;
-- p50/p95 latency;
-- cost per correct answer;
-- per-case failures without hiding them.
-
-Never display claims before a benchmark run produces evidence.
-
-### 7.9 About page
-
-Explain:
-
-- problem and narrow scope;
-- deterministic architecture;
-- answer receipts;
-- model-choice rationale;
-- synthetic data disclosure;
-- limitations;
-- architecture diagram;
-- links to README/evaluation inside the repo.
+When a user asks an out-of-scope finance question, the product explains the missing source field and
+suggests the closest safe supported action.
 
 ---
 
-## 8. Conversation and multi-turn behavior
+## 5. Personas and jobs to be done
 
-### 8.1 QueryState
+### 5.1 Finance manager/controller
 
-Server-authoritative state stores canonical values only:
+**Needs:** quick movement/balance answers, reliable period comparisons, evidence for review.  
+**Fear:** a confident but wrong number being forwarded to leadership.  
+**Success:** can answer a routine question and inspect records without asking an analyst.
 
-- metric;
-- exact period/date field;
-- filters;
-- group/sort/limit;
-- comparison;
-- referenced result/query IDs;
-- pending clarification;
-- context version.
+### 5.2 Finance operations analyst
 
-Do not rely on raw chat history as state.
+**Needs:** exact transaction/reference lookup, account/bank filters, export.  
+**Fear:** hidden fuzzy matching, duplicate references, leaking account/UTR values.  
+**Success:** finds the right row(s), understands ambiguity and exports a controlled result.
 
-### 8.2 State operations
+### 5.3 Business user
 
-Supported operations:
+**Needs:** plain language and understandable definitions.  
+**Fear:** finance terminology and unclear date/sign conventions.  
+**Success:** gets a direct answer with a human-readable explanation and no dashboard training.
 
-- `SET` or `REPLACE` a field;
-- `ADD`/`REMOVE` filter values;
-- `CLEAR` metric/filter/comparison;
-- `RESET` conversation;
-- `REFER_TO_RESULT` for “those,” only when referent is stable and permitted.
+### 5.4 Auditor/reviewer/judge
 
-Examples:
+**Needs:** traceability, reproducibility, visible limitations, model-efficiency evidence.  
+**Fear:** hardcoded demo answers or a model doing hidden arithmetic.  
+**Success:** can open the receipt, query plan, validations and rows and reproduce the total.
 
-- “How does that compare with the month before?” keeps metric/filters and adds comparison.
-- “Only AWS” replaces vendor filter.
-- “No, use the last 30 days” replaces date range.
-- “What about July?” replaces primary period while keeping supported context.
-- “Start over” clears state.
+### 5.5 Developer/data owner
 
-### 8.3 Concurrency
-
-Every mutation sends `expected_context_version`. Server increments on success. A stale request returns 409 and cannot overwrite newer state. Frontend discards responses whose client sequence/context version is older than the latest accepted response.
-
-### 8.4 Clarification persistence
-
-A clarification receipt stores candidates and the unresolved field. A concise reply such as “the cloud one” is resolved only against that pending clarification, not generic chat history.
+**Needs:** strict contracts, predictable query catalogue, test fixtures, observability.  
+**Fear:** arbitrary SQL, schema drift, timezone/collation bugs.  
+**Success:** can add a metric through an explicit, reviewable path.
 
 ---
 
-## 9. System architecture
+## 6. Source data contract
 
-### 9.1 Frontend
-
-- React, TypeScript strict mode, Vite;
-- React Router;
-- TanStack Query for server state, cancellation, and cache invalidation;
-- accessible headless primitives;
-- one chart library;
-- Vitest, Testing Library, MSW, Playwright;
-- generated/reused API types;
-- no official finance aggregation in the browser.
-
-### 9.2 Backend
-
-- Django + Django REST Framework;
-- Pydantic v2 internal contracts;
-- PostgreSQL for finance and application state;
-- allow-listed named SQL compilers with bound parameters;
-- Django ORM for conversations, idempotency, and audit metadata;
-- Redis/Celery for asynchronous XLSX/export or benchmark jobs if needed;
-- ASGI via Gunicorn/Uvicorn worker;
-- structured logs and trace IDs.
-
-### 9.3 Model layer
-
-- provider-independent adapter;
-- smallest viable structured-output model;
-- compact schema/semantic prompt;
-- deterministic pre-parser first;
-- at most one schema-repair retry;
-- no raw table dumps;
-- no model SQL;
-- no arithmetic authority;
-- prompt/model versions recorded per turn.
-
-### 9.4 Data path
+### 6.1 Tables
 
 ```text
-question
-→ request/idempotency/context validation
-→ deterministic hints
-→ lightweight InterpretationDraft when needed
-→ semantic/entity/date resolution
-→ ambiguity/support gate
-→ canonical QueryPlan
-→ allow-listed bound SQL
-→ ComputedFacts + source lineage
-→ validation suite
-→ AnswerReceipt + QueryState update
-→ React answer card/evidence/export
+bank(bank_code PK, bank_name)
+  1 ── * account(account_id PK, entity_id, account_number, program_id,
+                  available_balance, bank_code FK)
+          1 ── * transaction(transaction_id PK, account_id FK, transaction_date,
+                             transaction_type, description, transaction_amount,
+                             transaction_reference_id, utr_number)
 ```
 
-Architecture diagrams are in `docs/ARCHITECTURE.md` and `artifacts/architecture.mmd`.
+The executable DDL is `database/schema.sql`; field-by-field behavior is in
+`data/csv/data_dictionary.csv`.
+
+### 6.2 Schema implications
+
+- Currency is not stored per row; the hackathon assumption provides a single INR currency.
+- `transaction_amount` is absolute. Debit/credit direction is separate.
+- `available_balance` is current, not time-series data.
+- No vendor, category, payout or reconciliation fact exists.
+- Description is unstructured and can contain sensitive/hostile text.
+- References are not guaranteed unique.
+- IDs are strings. One supplied ID fails strict UUID parsing despite the documentation calling it a UUID.
+- `transaction` should be quoted in raw SQL.
+- MySQL session timezone affects `TIMESTAMP`; fixture behavior is `+05:30`.
 
 ---
 
-## 10. Data model and fixture
+## 7. Supported question catalogue
 
-### 10.1 Files
+### 7.1 Verified metrics
 
-- `chart_of_accounts.csv`
-- `vendors.csv`
-- `vendor_aliases.csv`
-- `transactions.csv`
-- `vendor_payouts.csv`
-- `reconciliation_status.csv`
-- `data_dictionary.csv`
-- `company_metadata.json`
-- `dataset_manifest.json`
+| Metric | Example | Deterministic definition |
+|---|---|---|
+| Debit total | “How much did we spend in August?” | Sum amount for debit rows in exact range. |
+| Credit total | “How much came in last month?” | Sum amount for credit rows. |
+| Net cash flow | “What was net movement?” | Credit total minus debit total. |
+| Transaction count | “How many transactions?” | Count filtered source rows. |
+| Average transaction | “Average debit amount?” | Decimal average of explicitly filtered rows. |
+| Largest transaction | “Largest credit in June?” | Highest amount with deterministic ID tie-break. |
+| Current balance | “Available balance across HDFC?” | Sum current balance across distinct filtered accounts. |
+| Account count | “How many program 46 accounts?” | Count filtered account rows. |
+| Transaction lookup | “Find reference HDFCH…” | Exact ID/reference equality. |
 
-### 10.2 Dataset goals
+### 7.2 Supported dimensions and filters
 
-The fixture must be realistic enough to exercise finance semantics, but deterministic and safe to publish. It includes:
+- exact bank code or canonical bank name;
+- exact account ID;
+- exact entity ID;
+- exact integer program ID;
+- credit/debit type;
+- transaction timestamp range;
+- exact transaction ID;
+- exact, case-sensitive transaction reference;
+- amount minimum/maximum;
+- confirmed literal description substring, with qualification.
 
-- several months of posted/draft/voided transactions;
-- completed/pending/failed/reversed payouts;
-- vendor aliases and ambiguous short names;
-- expense, COGS, revenue, asset, liability, and other accounts;
-- departments/cost centers/projects;
-- credits and reversals;
-- reconciled, unreconciled, partially reconciled, and disputed records;
-- duplicate candidates;
-- one declared large anomaly;
-- missing relationship/coverage cases;
-- malicious-looking text that must remain inert;
-- exact benchmark answers.
+### 7.3 Supported groupings
 
-All names, tax IDs, bank references, invoices, values, and people are synthetic.
+- bank code/name;
+- account ID;
+- entity ID;
+- program ID;
+- transaction type;
+- day/month.
 
-### 10.3 Runtime/gold isolation
+Two grouping levels are the v1 maximum. Grouping by raw description is excluded because high
+cardinality and narration variation produce misleading results.
 
-Runtime application code may read the dataset and semantic definitions. It must never read:
+### 7.4 Explicitly unsupported
 
-- `evaluation/expected_aggregates.json`;
-- expected values/source IDs in gold benchmark files;
-- hardcoded answers copied into routes/components.
-
-Gold is allowed only in evaluation and integration-test packages.
-
----
-
-## 11. Contracts
-
-Canonical files:
-
-- `contracts/interpretation_draft.schema.json`
-- `contracts/query_plan.schema.json`
-- `contracts/query_state.schema.json`
-- `contracts/computed_facts.schema.json`
-- `contracts/answer_receipt.schema.json`
-- `contracts/problem_details.schema.json`
-- `contracts/openapi.yaml`
-- `contracts/semantic_metrics.yaml`
-
-Rules:
-
-- reject unknown fields at trust boundaries;
-- enums are closed;
-- canonical arrays/filters are sorted for stable hashing;
-- monetary JSON values use decimal strings;
-- source record IDs and hashes are deterministic;
-- status controls whether a number may appear;
-- contract change requires docs, generated types, and tests in the same task.
+- vendor or beneficiary attribution as an authoritative dimension;
+- payout status or payout date;
+- reconciliation status/outstanding amount;
+- chart-of-accounts category;
+- historical balance;
+- forecast/budget/future cash balance;
+- named entity lookup without a master table;
+- raw account-number search;
+- UTR search in encrypted/tokenized mode.
 
 ---
 
-## 12. API behavior
+## 8. Finance and date semantics
 
-The OpenAPI file is authoritative. Primary endpoints:
+The machine-readable contract is `contracts/semantic_metrics.yaml`.
 
-- company/meta/glossary;
-- conversation create/list/get/rename/delete/reset;
-- message/clarification submission;
-- query receipt;
-- source records;
-- CSV/XLSX export;
-- explorer transactions and payouts;
-- reconciliation summary/list;
-- data-health summary/details;
-- local evaluation runs/results.
+### 8.1 Money
 
-### 12.1 Idempotency
+- MySQL uses `DECIMAL(15,2)`.
+- Python uses `Decimal` created from strings.
+- JSON transmits decimal strings.
+- React retains strings and only formats for display.
+- No `number`, float, JavaScript arithmetic or model arithmetic is authoritative.
+- Indian currency formatting uses `en-IN` while copy/export retains exact decimal form.
 
-Message and export creation use idempotency keys. Same key + same body returns original result; same key + different body returns 409.
+### 8.2 Debit/credit
 
-### 12.2 Errors
+`transaction_amount` does not carry a sign. Official formulas are:
 
-Use `application/problem+json`. Never leak SQL, stack traces, prompts, secrets, or internal credentials. Include safe detail, field errors, and trace ID.
+```text
+debit_total = Σ amount where type = debit
+credit_total = Σ amount where type = credit
+net_cash_flow = credit_total - debit_total
+```
 
-### 12.3 Query limits
+Do not negate debits inside the source table or double-negate in presentation.
 
-- maximum message length 4,000;
-- source preview default 100, bounded maximum;
-- cursor pagination only;
-- breakdown maximum 500;
-- allow-listed dimensions/sorts;
-- statement timeout;
-- export cap or async flow;
-- no arbitrary text search across every field.
+### 8.3 Date ranges
+
+- Use `[start_inclusive, end_exclusive)`.
+- Interpret explicit dates in `Asia/Kolkata` unless the user supplies a supported timezone.
+- For the fixture, “last month” is August 2026 because `data_as_of` is 3 September 2026.
+- “This month” means 1–3 September through an exclusive 4 September boundary.
+- “Recently”, “lately” and similar terms require clarification.
+- Comparisons use equal, calendar-aligned periods where possible.
+- Never substitute the server's current date for the fixture anchor.
+
+### 8.4 Current balance
+
+- `available_balance` is summed only over distinct account rows.
+- Negative values are valid and displayed as such.
+- A historical-date modifier changes the request to unsupported; it must not be silently ignored.
+- A transaction filter cannot be applied to current balance unless it resolves to an account set
+  explicitly and the UI explains the scope.
+
+### 8.5 References
+
+- Bare “reference” → `transaction_reference_id`.
+- Exact and case-sensitive.
+- Zero matches → no-data.
+- Multiple matches → qualified with all rows.
+- Never fuzzy match or fall back to UTR.
+- Explicit UTR → unsupported in default storage mode.
+
+### 8.6 Description search
+
+- Literal, case-insensitive substring only after confirmation when phrased like a vendor request.
+- Answer wording says “transactions whose description contains …”.
+- Confidence/status is `qualified`.
+- Never use it to claim payout, vendor identity, category or reconciliation.
+- Redact known account numbers from narration before display/model/export.
 
 ---
 
-## 13. AnswerReceipt
+## 9. Answer state machine
 
-Every receipt includes:
+Every user turn ends in one of these product states:
 
-- `query_id`, conversation/turn IDs, timestamps;
-- answer status and plain-language answer;
-- exact metric definition;
-- interpreted date phrase, exact range, anchor, and date field;
-- canonical filters/grouping/sort/limit/comparison;
-- computed value(s), units/currency, and breakdown;
-- source row count, ID hash, preview/records link;
+### `verified`
+
+The concept is directly represented; query executed; required checks passed; number/records can be shown.
+
+### `qualified`
+
+The deterministic result is valid but a material limitation applies. Examples:
+
+- literal description search;
+- duplicate transaction reference;
+- partial data coverage;
+- duplicate-lookalike source warning.
+
+### `needs_clarification`
+
+Multiple plausible interpretations could materially change the answer. No number is shown. The UI
+provides a direct question and 2–5 selectable options where possible.
+
+### `unsupported`
+
+The source lacks the field or the operation is disabled for privacy/security. No query runs and no
+number is shown. The UI names the missing concept and closest safe alternative.
+
+### `no_data`
+
+A valid query ran and matched zero rows. Do not conflate this with unsupported or system failure.
+
+### `validation_failed`
+
+A required integrity/control check failed after execution. Suppress the number and provide a trace ID.
+
+Transport/system errors use `ProblemDetails` and are separate from these semantic states.
+
+---
+
+## 10. End-to-end assistant pipeline
+
+### Stage 0: request envelope
+
+The browser sends:
+
+- conversation ID;
+- stable message ID;
+- text;
+- locale/timezone;
+- idempotency key;
+- expected context version.
+
+The backend rejects oversized/empty input and stale context before model work.
+
+### Stage 1: lightweight interpretation
+
+The model receives:
+
+- the user's current message;
+- a compact, sanitized summary of QueryState;
+- supported metrics/filter vocabulary;
+- date anchor;
+- no raw finance rows and no raw sensitive values.
+
+It returns `InterpretationDraft`: intent, raw phrases, mentions, ambiguities and unsupported concepts.
+It cannot return SQL or an amount.
+
+### Stage 2: deterministic resolution
+
+Code resolves:
+
+- metric phrase to one metric;
+- relative/explicit dates to exact half-open timestamps;
+- canonical bank names/codes;
+- account/entity/program IDs against source metadata;
+- reference kind and exact value;
+- follow-up patches against the last successful QueryPlan;
+- missing/contradictory filters;
+- schema gaps and privacy restrictions.
+
+Output is a validated `QueryPlan` or a clarification/unsupported plan.
+
+### Stage 3: allow-listed query compilation
+
+A metric-specific compiler chooses:
+
+- known table joins;
+- known aggregate expression;
+- known predicates;
+- known group/sort fields;
+- a bounded row/page limit.
+
+Only bound values come from the request. No free-form identifier or SQL fragment is accepted.
+
+### Stage 4: execution
+
+- Use a read-only connection.
+- Set `time_zone='+05:30'`.
+- Apply query timeout.
+- Execute aggregate and source-ID/record queries independently where needed.
+- Keep money as `Decimal`.
+- Do not call the model while a DB transaction is open.
+
+### Stage 5: validation
+
+Required checks include:
+
+- QueryPlan contract valid;
+- date start < end and no unsupported future range assumptions;
+- enum/domain/foreign-key resolution valid;
+- decimal precision preserved;
+- row count matches lineage query;
+- source IDs hash deterministically;
+- component totals reconcile for net/comparison;
+- largest amount matches the returned record;
+- privacy sanitization completed;
+- no source field outside the allow-list entered model/presentation.
+
+Warnings include duplicate-looking rows, duplicate reference, null narration, zero amount or partial coverage.
+
+### Stage 6: answer construction
+
+Prefer deterministic templates for the headline/summary. A lightweight wording model is optional and
+may receive only ComputedFacts plus safe labels. The server compares every numeric token in generated
+wording against allowed computed values; mismatch falls back to deterministic wording.
+
+### Stage 7: receipt and state commit
+
+- Create immutable AnswerReceipt.
+- Persist/cache receipt and normalized source predicate outside the finance DB.
+- Update QueryState using compare-and-swap on context version.
+- Return the receipt.
+- A late older request cannot overwrite newer state.
+
+---
+
+## 11. Multi-turn behavior
+
+### 11.1 State model
+
+QueryState stores:
+
+- dataset version/cutoff;
+- last successful normalized plan;
+- active receipt scope for “those” references;
+- pending clarification;
+- context version and message IDs.
+
+It does not store raw sensitive source values.
+
+### 11.2 Patch semantics
+
+A follow-up is a patch, not a fresh unconstrained interpretation:
+
+- “Only HDFC” adds/replaces `bank_codes`.
+- “What about credits?” replaces debit metric/type; it does not create contradictory filters.
+- “How does that compare with the month before?” retains metric/filters and adds comparison range.
+- “Which bank was that?” uses the selected transaction receipt scope.
+- “What was the balance last month?” inherits balance but becomes unsupported because history is absent.
+
+### 11.3 Clarification lifecycle
+
+- The pending clarification includes option IDs and patches.
+- A selected option is validated against the same context version.
+- Free-text clarification is reinterpreted against the pending question.
+- A new unrelated request cancels the pending clarification.
+- Browser refresh fetches server state.
+
+### 11.4 Race handling
+
+- Each mutation includes expected context version.
+- Server returns 409 `stale_context` on mismatch.
+- React cancels previous requests where possible and ignores receipts with an older context version.
+- Idempotency prevents double submission on retries/double clicks.
+
+---
+
+## 12. Functional requirements
+
+### 12.1 Ask/chat
+
+- Free-form input up to 2,000 characters.
+- Suggested questions based only on supported schema.
+- Streaming is optional; do not stream a tentative numeric answer.
+- Show interpretation and progress states separately.
+- Preserve conversation history in the current session.
+- Allow starting a new conversation.
+- Support keyboard submission and multiline input.
+
+### 12.2 Answer receipt
+
+For verified/qualified results show:
+
+- direct answer and exact value;
+- status badge;
+- data-as-of;
+- metric/date/filter chips;
+- formula/human-readable execution plan;
 - validation checks;
-- warnings and coverage notes;
-- dataset version/data-as-of;
-- named compiled query and human-readable calculation;
-- prompt/model version where used;
-- confidence state determined by policy, not model self-rating.
+- source row/account count;
+- warning list;
+- breakdown table/chart where requested;
+- records tab/drawer;
+- sanitized SQL with placeholders as an advanced disclosure;
+- CSV/XLSX export tied to receipt;
+- copy answer/receipt link.
 
-### 13.1 Confidence/status policy
+For non-answer states show no numeric placeholder that could be mistaken for zero.
 
-- `verified`: all required checks pass; no material coverage warning.
-- `qualified`: deterministic result exists, but a declared non-fatal issue may affect interpretation/completeness.
-- `needs_clarification`: multiple material interpretations; no number.
-- `not_answerable`: required domain/field absent; no number.
-- `no_matching_rows`: valid, sufficiently covered query with zero rows; explicit no-record/verified-zero language.
-- `error`: technical or required validation failure; no number.
+### 12.3 Transaction explorer
 
-Do not present a generic percentage confidence unless it is empirically calibrated and still subordinate to these states.
+- Date/type/bank/account/entity/program/reference/amount/description filters.
+- Keyset pagination.
+- Raw amount string plus formatted display.
+- Masked account and UTR.
+- Description escaping and account-number redaction.
+- Exact reference mode visibly different from description search.
+- Qualified banner for narration search.
+- Filter state reflected in URL where safe; never include UTR/account number.
+- Export uses server-side predicate, not current page rows.
 
----
+### 12.4 Accounts
 
-## 14. Hallucination and prompt-injection guardrails
+- Canonical bank/name, masked account, program, short entity ID, current balance.
+- Summary cards by bank/program.
+- Negative balance is not rendered as a system error.
+- No historical date picker.
+- Clicking an account opens transaction explorer by account ID.
 
-1. The model receives schema/semantic metadata, not authority over SQL or totals.
-2. Record text is delimited and treated as data; preferably it is not sent to the parser at all.
-3. Output validates against a closed schema; extra keys fail.
-4. Resolver confirms IDs and dates.
-5. Mandatory filters are inserted deterministically.
-6. Compiler maps supported QueryPlans to named query templates/functions.
-7. Result validator checks totals, row counts, cardinality, currency, signs, dates, and coverage.
-8. Answer composer can only reference supplied fact tokens; numeric-token validator rejects novel numbers.
-9. Unsupported/ambiguous gates run before execution.
-10. `TXN-PROMPT-001`/`PAY-PROMPT-001` regression test must remain green.
+### 12.5 Data health
 
----
+Show:
 
-## 15. Bugs and failure-mode requirements
+- source row counts;
+- earliest/latest transaction;
+- dataset cutoff/timezone/currency;
+- orphan FK checks;
+- null description/reference/UTR counts;
+- zero amounts;
+- duplicate-lookalike signatures;
+- duplicate transaction references;
+- narration account-number leakage requiring redaction;
+- strict-UUID parse anomalies;
+- schema/index availability;
+- status and blocking/non-blocking classification.
 
-`docs/BUG_AND_QA_PLAYBOOK.md` is authoritative. P0 regressions include:
+### 12.6 Glossary/capabilities
 
-### 15.1 Finance correctness
+- Metric definitions and examples.
+- Date semantics.
+- Difference between transaction reference and UTR.
+- Sensitive-field behavior.
+- Direct list of unavailable concepts.
+- Suggested supported reformulations.
 
-- wrong date field;
-- inclusive end-date double counting;
-- missing mandatory status filter;
-- pending/failed/reversed payouts included in completed total;
-- credits/reversals converted to positive or omitted;
-- partial reconciliation using full transaction amount;
-- one-to-many join inflating totals;
-- duplicate candidates silently deduplicated;
-- missing reconciliation rows ignored without warning;
-- `float` rounding drift;
-- comparison percentage on zero baseline;
-- timezone/date-anchor drift.
+### 12.7 Export
 
-### 15.2 Language/context
+- CSV and XLSX are good-to-have/P0.5.
+- Receipt-scoped, deterministic row order.
+- Includes metadata sheet/header: query ID, cutoff, interpretation, row count, hash.
+- No raw account or UTR.
+- Formula-injection defense: prefix cells beginning `=`, `+`, `-`, `@` where needed.
+- Row cap and asynchronous job beyond inline threshold.
+- Expiry returns 410 with clear regeneration action.
 
-- ambiguous vendor auto-selected;
-- “recent” assigned a hidden default;
-- bare fiscal/calendar quarter guessed;
-- “those” bound to wrong result;
-- correction adds instead of replaces;
-- older response overwrites newer context;
-- idempotent retry creates duplicate turn;
-- parser uses malicious record text as instruction;
-- unsupported prediction receives a number.
+### 12.8 Evaluation page
 
-### 15.3 UI
-
-- answer shown before validation completes;
-- stale answer remains after query changes;
-- browser total differs from server/export;
-- evidence panel loses route state;
-- mobile composer covers final rows;
-- modal/sheet focus trap broken;
-- table keyboard access missing;
-- warning represented only by colour;
-- loading skeleton causes layout shift;
-- failed export link remains active;
-- long vendor/reference text breaks layout;
-- CSV formula injection;
-- raw HTML/XSS from record/model text.
-
-### 15.4 Operational
-
-- cache key omits dataset snapshot;
-- DB transaction stays open during model call;
-- timeout returns partial number;
-- logs contain raw financial data/secrets;
-- evaluation gold imported by runtime;
-- 20M performance claimed from toy data.
-
-Every bug fix adds a regression test and references a ticket ID.
+- Select model/prompt version and benchmark case subset.
+- Show metric/date/filter/numeric/refusal/privacy/multi-turn scores separately.
+- Show p50/p95 latency, token use and cost.
+- Drill into failed cases without exposing gold values to runtime routes.
+- Mark results as measured and timestamped.
 
 ---
 
-## 16. Accessibility and responsive behavior
+## 13. Information architecture and routes
 
-Minimum target: WCAG 2.2 AA behavior for core flows.
+| Route | Purpose |
+|---|---|
+| `/ask` | Default chat and answer-receipt workspace |
+| `/transactions` | Sanitized transaction explorer |
+| `/accounts` | Current account/balance view |
+| `/data-health` | Source quality and controls |
+| `/glossary` | Supported definitions and limitations |
+| `/evaluation` | Model/parser benchmark tooling |
 
-- semantic landmarks and headings;
-- keyboard-complete navigation;
-- visible focus;
-- labelled controls and icon buttons;
-- announcements for async stage/status without reading every token;
-- no colour-only status;
-- adequate contrast;
-- reduced-motion support;
-- dialogs/sheets restore focus;
-- table headers and accessible names;
-- mobile 360px flow remains usable;
-- currency values have readable labels;
-- charts have table/text alternatives.
-
-Automated checks are required but do not replace keyboard and screen-reader smoke tests.
+Desktop uses a left navigation rail, central workspace and optional right evidence panel. Tablet
+collapses the evidence panel into a drawer. Mobile uses bottom navigation and full-screen sheets.
+Full page behavior is in `docs/UI_UX_SPEC.md`.
 
 ---
 
-## 17. Export behavior
+## 14. Backend architecture
 
-CSV and XLSX are generated server-side from immutable query lineage.
+Suggested Django apps/modules:
 
-- same source count/hash as receipt;
-- deterministic order;
-- canonical decimal/date formatting;
-- source IDs preserved as text;
-- malicious spreadsheet prefixes escaped in untrusted text;
-- negative numeric finance values remain numeric, not escaped as text;
-- XLSX includes Receipt, Breakdown, and Records sheets;
-- row cap/error is explicit;
-- stale or mismatched dataset snapshot blocks export rather than silently recomputing a different answer.
+```text
+backend/
+  config/
+  finance_data/
+    models.py             # unmanaged Bank, Account, Transaction
+    repositories.py       # read-only source access
+    serializers.py        # sanitized transport rows
+    health.py
+  assistant/
+    contracts.py          # Pydantic models generated/aligned to JSON Schema
+    interpreter.py
+    resolver.py
+    date_resolver.py
+    entity_resolver.py
+    compiler/
+      registry.py
+      transaction_metrics.py
+      balance_metrics.py
+      lookup.py
+    executor.py
+    validators.py
+    presenter.py
+    receipts.py
+    state.py              # Redis compare-and-swap
+    privacy.py
+  exports/
+  evaluation/
+  api/
+```
 
----
+The database user is read-only after fixture setup. Django's own auth/session tables should use a
+separate database if introduced; for the hackathon, use Redis/sessionless demo state.
 
-## 18. Model-efficiency plan
-
-The model is evaluated as an interpreter, not calculator.
-
-### 18.1 Optimisation order
-
-1. deterministic exact-ID/date/status handling;
-2. compact semantic registry;
-3. strict InterpretationDraft schema;
-4. entity/date resolvers;
-5. prompt iteration;
-6. only then consider a larger model.
-
-### 18.2 Acceptance gates
-
-A candidate cannot be selected unless it passes every critical case:
-
-- ambiguous vendors clarify;
-- unsupported forecast/approval questions refuse;
-- prompt injection remains inert;
-- dates/metrics/filters are correct;
-- multi-turn corrections are safe;
-- malformed structured output fails closed.
-
-Record accuracy, latency, tokens, API cost, prompt version, model ID, and environment. Select the smallest candidate clearing the declared threshold. See `docs/MODEL_EVALUATION_PLAN.md`.
+Detailed compiler behavior is in `docs/BACKEND_QUERY_ENGINE_SPEC.md`.
 
 ---
 
-## 19. Performance and scale
+## 15. Frontend architecture
 
-The challenge permits up to 20M records. The prototype must be architecturally credible without making unmeasured claims.
+Suggested structure:
 
-- composite/partial indexes for common metric/date/status/vendor paths;
-- pre-joined safe analytical views where helpful;
-- aggregate in PostgreSQL;
-- cursor pagination;
-- bounded source previews;
-- statement timeouts and query cancellation;
-- no user-controlled arbitrary joins/columns;
-- repeatable snapshot semantics;
-- EXPLAIN/ANALYZE evidence on scaled disposable data;
-- p50/p95 captured by named query and row count;
-- cache includes dataset version and canonical QueryPlan hash.
+```text
+frontend/src/
+  app/
+  routes/
+  features/assistant/
+  features/transactions/
+  features/accounts/
+  features/data-health/
+  features/evaluation/
+  components/
+  api/generated/
+  lib/money.ts
+  lib/dates.ts
+  lib/requestState.ts
+  tests/
+```
 
-P0 target for the base demo: common questions complete within a few seconds end-to-end. Submission claims must use actual measurements.
+Use TanStack Query for server state and React Router for routes. Keep AnswerReceipt immutable in
+the client cache. Charts consume server-supplied breakdowns; they do not calculate official totals.
+
+---
+
+## 16. API contract
+
+The canonical API is `contracts/openapi.yaml`. Primary endpoints:
+
+- `GET /api/v1/metadata`
+- `GET /api/v1/banks`
+- `GET /api/v1/accounts`
+- `GET /api/v1/transactions`
+- `GET /api/v1/data-health`
+- `POST /api/v1/assistant/messages`
+- `GET /api/v1/assistant/conversations/{id}/state`
+- `GET /api/v1/assistant/receipts/{query_id}`
+- `GET /api/v1/assistant/receipts/{query_id}/records`
+- `GET /api/v1/assistant/receipts/{query_id}/export`
+- `POST /api/v1/evaluation/runs`
+
+Do not create a generic `/query` accepting SQL, table names or column lists.
+
+---
+
+## 17. Explainability and trust design
+
+### Answer receipt hierarchy
+
+1. **Answer:** direct value and sentence.
+2. **Interpretation:** metric, exact period, filters, grouping/comparison.
+3. **Calculation:** named deterministic formula and component totals.
+4. **Evidence:** row/account count, breakdown, records and source hash.
+5. **Checks:** pass/warn/fail outcomes.
+6. **Limitations:** why status is qualified or unsupported.
+7. **Technical detail:** sanitized statement/parameters for reviewers.
+
+Avoid anthropomorphic statements like “I looked at your finances.” Prefer “The query matched 205
+debit transactions.”
+
+### Confidence
+
+Confidence is an operational state, not a model probability. Never show an unexplained 87% score.
+Model parser confidence may influence whether to clarify, but it is not the public trust signal.
+
+---
+
+## 18. Privacy and security
+
+### Sensitive fields
+
+- account number: restricted, masked last four;
+- UTR: restricted, masked/lookup disabled;
+- balances/amounts: confidential, shown only as necessary;
+- entity/account IDs: internal;
+- description: potentially sensitive/untrusted.
+
+### Prompt injection
+
+Database content is data, not instruction. The model should normally receive aggregate facts and
+safe labels only. If a future feature includes narration, wrap it as structured quoted data, state
+that it is untrusted and never allow it to modify tools/policies.
+
+### XSS
+
+React renders text nodes. `dangerouslySetInnerHTML` is forbidden for answer/source content. CSV/XLSX
+exports protect against spreadsheet-formula injection.
+
+### SQL injection
+
+No model SQL, bound parameters only, allow-listed field mappings, strict page/sort enums and DB
+read-only permission.
+
+See `docs/SECURITY_PRIVACY_AND_TRUST.md`.
+
+---
+
+## 19. Performance and 20M-record considerations
+
+The organiser mentions up to 20M source records. The demo fixture does not prove that scale. Design
+for it and benchmark honestly:
+
+- composite date/type/account indexes;
+- index on plaintext reference;
+- aggregation in MySQL;
+- source previews capped at 100;
+- keyset pagination, not deep OFFSET;
+- separate total and row queries;
+- query timeout and cancel;
+- no full table sent to model/browser;
+- bounded group cardinality;
+- explain/analyze representative plans;
+- receipt cache keyed by dataset version + normalized plan;
+- async export for large sets;
+- avoid `%substring%` narration queries at high scale or explicitly label their limitation;
+- optional full-text index as exploratory acceleration, not canonical vendor logic.
+
+Record hardware, MySQL version, row count, query, cold/warm state and p50/p95 before presenting a
+performance number.
 
 ---
 
 ## 20. Observability
 
-Structured fields:
+Structured event fields:
 
-- trace/query/conversation/turn/client IDs;
+- trace ID, query ID, conversation ID, message ID;
 - context version;
-- dataset version/snapshot;
-- prompt/model version;
-- metric/intent/status;
-- stage timings;
-- named query;
-- source row count bucket;
-- validation codes;
-- cache/idempotency outcomes;
-- token/cost metrics where available.
+- dataset version/cutoff;
+- model/prompt version;
+- normalized metric/filter/date/group IDs;
+- compiler template ID and plan hash;
+- row/account count and source hash;
+- validation statuses;
+- model/query/validation/total latency;
+- token use/cost;
+- semantic outcome status;
+- error code/retryability.
 
-Do not log raw source rows or full prompts in normal mode. Local synthetic debug mode may be explicit and opt-in.
-
----
-
-## 21. Test strategy and release gates
-
-### 21.1 Unit
-
-Dates, money, aliases, state operations, schemas, mandatory filters, compiler parameters, validators, confidence, answer formatting, export sanitisation.
-
-### 21.2 Property-based
-
-Canonicalisation idempotence, filter-order hash equivalence, signed arithmetic, cursor round-trip, no novel numeric tokens, valid range compilation, reconciliation invariants.
-
-### 21.3 PostgreSQL integration
-
-Run all gold QueryPlans, assert exact totals/source relationships, edge cases, query timeouts, export parity, and runtime/gold isolation.
-
-### 21.4 API contract
-
-Validate requests/responses against OpenAPI and JSON Schema, problem-details errors, idempotency, context conflicts, pagination, and cancellation.
-
-### 21.5 Frontend integration/E2E
-
-Happy path, comparison, clarification, unsupported refusal, source records, export, double submit, stale response, network retry, mobile evidence, keyboard/focus, XSS/formula text.
-
-### 21.6 Model evaluation
-
-Field-level parser accuracy plus end-to-end exact answer/refusal/source accuracy. Averages cannot hide critical safety failures.
-
-### 21.7 Release blockers
-
-- any fabricated number;
-- any critical ambiguity answered without clarification;
-- any runtime gold dependency;
-- any failed required validation still showing a number;
-- export/receipt mismatch;
-- P0 critical E2E failure;
-- false model/performance claim;
-- synthetic-data disclosure missing.
+Never log raw account numbers, UTRs, full descriptions or unbounded user input. Retain sampled,
+redacted messages only if required for the hackathon evaluation and disclose it.
 
 ---
 
-## 22. Delivery phases
+## 21. Failure behavior
 
-### Phase 0 — contracts and data
+| Failure | User state | Number shown? | Retry? |
+|---|---|---:|---:|
+| Ambiguous date/vendor-like term | needs clarification | No | after clarification |
+| Missing source field | unsupported | No | only after schema change |
+| Valid zero rows | no data | No; do not show ₹0 as answer | user can adjust filters |
+| Query timeout | problem detail | No | Yes |
+| Required validation fail | validation failed | No | Yes after investigation |
+| Model timeout | deterministic fallback if possible, else problem | No tentative number | Yes |
+| Stale conversation write | 409 stale context | No new answer | client refresh/replay |
+| Export expired | 410 | n/a | regenerate |
+| Description search duplicate warnings | qualified | Yes | n/a |
 
-Validate fixtures, freeze semantics/contracts, prepare a PostgreSQL connection, establish CI and agent rules.
-
-### Phase 1 — deterministic core
-
-Hand-built QueryPlan → PostgreSQL → ComputedFacts → checks → AnswerReceipt. No model required.
-
-### Phase 2 — minimum UI/API
-
-DRF endpoints, Ask page, answer states, evidence records/checks/query, basic responsive layout.
-
-### Phase 3 — lightweight interpretation
-
-Pre-parser, structured model parse, resolvers, ambiguity/support gates, benchmark harness.
-
-### Phase 4 — multi-turn
-
-QueryState, correction operations, pending clarification, version conflicts, stale-response protection.
-
-### Phase 5 — full pages and exports
-
-Explorer, Reconciliation, Data Health, Glossary, Evaluation, CSV/XLSX, accessibility.
-
-### Phase 6 — scale and demo
-
-Performance measurements, bug burn-down, architecture/README, model rationale, deck, recorded sample answers, demo rehearsal.
-
-The dependency-ordered work queue is `project_backlog.csv`.
+Error copy must say what happened, what was preserved and what the user can do next.
 
 ---
 
-## 23. Three-minute demo flow
+## 22. QA strategy
 
-1. Ask last-month vendor payouts.
-2. Show result and interpretation chips.
-3. Open Receipt/Records/Checks; point to 55 rows and calculation.
-4. Ask prior-month comparison.
-5. Narrow to unreconciled/open context or inspect one partial item.
-6. Ask ambiguous Acme; system clarifies and shows no number.
-7. Ask next-quarter cash prediction; system safely refuses.
-8. Show prompt-injection record is inert.
-9. Flash evaluation page: smallest selected model, exact benchmark, latency/cost.
-10. Close with value: self-service speed plus auditability.
+Testing layers:
 
-See `docs/DEMO_AND_SUBMISSION_PLAN.md` for timing and deck.
+1. Fixture integrity and gold recomputation.
+2. Pure metric/date/privacy functions.
+3. QueryPlan schema and deterministic resolver tests.
+4. Compiler SQL snapshot/parameter tests.
+5. MySQL integration tests against fixture.
+6. API contract tests.
+7. React component/accessibility tests.
+8. Multi-turn race/idempotency tests.
+9. End-to-end demo flows.
+10. Model benchmark and adversarial prompts.
+11. Scale/query-plan tests.
 
----
+Critical regression cases are in `evaluation/edge_case_manifest.csv`, including:
 
-## 24. Definition of done
+- exact month boundaries at microsecond precision;
+- duplicate-lookalike rows;
+- duplicate references;
+- null narration;
+- zero amount;
+- max `DECIMAL(15,2)`;
+- malformed UUID-like source ID;
+- account number embedded in narration;
+- encrypted UTR with missing plaintext reference;
+- case-sensitive reference;
+- prompt injection and script text;
+- Unicode narration.
 
-The product is submission-ready when:
-
-- clean checkout instructions work;
-- fixture and repository validators pass;
-- core QueryPlans return exact gold values;
-- all answer statuses are implemented;
-- multi-turn comparison/correction/clarification passes;
-- every number has a receipt and source lineage;
-- all P0 pages have loading/empty/error/permissionless-demo states;
-- desktop, tablet, and 360px mobile work;
-- keyboard/accessibility smoke tests pass;
-- CSV/XLSX parity and injection tests pass;
-- selected lightweight model has a reproducible benchmark;
-- architecture and model rationale are documented;
-- performance claims are measured;
-- demo script is rehearsed against a fixed build;
-- known limitations are disclosed rather than hidden.
+See `docs/BUG_AND_QA_PLAYBOOK.md`.
 
 ---
 
-## 25. Document precedence
+## 23. Model evaluation and selection
 
-1. `AGENTS.md` for safety and agent rules.
-2. This master specification for product priorities and cross-cutting behavior.
-3. Contracts under `contracts/` for machine-visible shapes and finance semantics.
-4. `docs/BACKEND_QUERY_ENGINE_SPEC.md` and `docs/UI_UX_SPEC.md` for detailed implementation.
-5. `docs/BUG_AND_QA_PLAYBOOK.md` for failure-mode acceptance.
-6. `project_backlog.csv` for execution order.
-7. Evaluation gold files for tests only.
+Benchmark the smallest viable models on `InterpretationDraft`, not prose quality alone.
 
-When two sources disagree, open a contract/product decision task and fix every affected source. Do not silently choose whichever implementation is easiest.
+Score separately:
+
+- intent/metric;
+- date range;
+- bank/account/entity/program/type/reference extraction;
+- grouping/comparison;
+- ambiguity detection;
+- unsupported concept detection;
+- exact structured-output validity;
+- multi-turn patches;
+- latency/tokens/cost.
+
+Then run end-to-end numeric tests to catch compiler/resolver bugs. Select the lowest-cost/smallest
+model that clears the release gates. If a smaller model routes uncertainty to clarification, that
+can be better than a larger model that confidently guesses.
+
+---
+
+## 24. Implementation phases
+
+### Phase 0 — schema alignment and fixture
+
+Complete when:
+
+- only three source tables remain;
+- MySQL DDL/loader works;
+- fixture/gold/edge tests pass;
+- gaps are documented.
+
+### Phase 1 — deterministic vertical slice
+
+- unmanaged models/repository;
+- metadata/bank/account/transaction endpoints;
+- privacy sanitization;
+- manually constructed debit-total QueryPlan;
+- compiler/executor/validator;
+- receipt/records endpoint;
+- Ask UI for one question.
+
+No model is required yet. This proves the trust architecture.
+
+### Phase 2 — lightweight natural-language parser
+
+- InterpretationDraft prompt/schema;
+- metric/date/filter resolvers;
+- clarification/unsupported handling;
+- benchmark harness;
+- remaining supported metrics.
+
+### Phase 3 — multi-turn and evidence UX
+
+- Redis QueryState/versioning/idempotency;
+- comparison/follow-up patches;
+- source records, breakdowns and sanitized query disclosure;
+- exports.
+
+### Phase 4 — supporting pages and hardening
+
+- Transactions, Accounts, Data Health, Glossary, Evaluation;
+- accessibility/responsive states;
+- adversarial/privacy/race tests;
+- scale benchmark;
+- demo/deck/README captures.
+
+Dependencies and tickets are in `project_backlog.csv`.
+
+---
+
+## 25. Definition of done
+
+A submission is done when:
+
+- a fresh clone can start MySQL/Redis and load the fixture;
+- React and Django launch from documented commands;
+- canonical demo questions return expected receipt states;
+- numbers exactly match source recomputation;
+- records/exports match receipt count/hash;
+- raw account/UTR never appears in response/log/export/model fixtures;
+- vendor/reconciliation/history questions return no fabricated number;
+- all P0 tests and `make all` pass;
+- model results are measured and saved;
+- architecture diagram, README, sample questions and deck are complete;
+- no hardcoded route/component answer values exist;
+- limitations are visible in the demo.
+
+---
+
+## 26. Product positioning for the presentation
+
+Avoid: “ChatGPT for finance data.”
+
+Use:
+
+> **LedgerProof turns finance questions into validated query plans, deterministic calculations and auditable answer receipts. It gives a number only when the database can prove it.**
+
+The source schema's limitations become a demonstration strength: the assistant knows that
+“unreconciled” and “vendor payout” are unavailable rather than hallucinating a classification from
+bank narration.

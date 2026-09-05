@@ -1,241 +1,270 @@
 #!/usr/bin/env python3
-"""Fail-fast integrity and finance-semantic validation for the sample dataset."""
+"""Validate the generated bank/account/transaction fixture and gold evaluations."""
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import sys
-from collections import Counter, defaultdict
-from datetime import date, timedelta
+import uuid
+from collections import Counter
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from typing import Any
+
+from reference_evaluator import Fixture, aggregate_metric, current_balance, filter_transactions
 
 ROOT = Path(__file__).resolve().parents[1]
 CSV_DIR = ROOT / "data" / "csv"
 EVAL_DIR = ROOT / "evaluation"
-DATA_AS_OF = date(2026, 9, 3)
-OPEN_STATUSES = {"unreconciled", "partially_reconciled", "disputed"}
-errors: list[str] = []
-warnings: list[str] = []
+EXPECTED_TABLE_FILES = {"bank.csv", "account.csv", "transaction.csv", "data_dictionary.csv"}
+EXPECTED_BANK_CODES = {"HDFC", "ICIC", "SBIN", "UTIB", "KKBK", "CNRB", "UBIN", "AUBL", "TMBL", "RATN"}
+EXPECTED_COUNTS = {"bank": 10, "account": 30, "transaction": 2426, "benchmarks": 30}
+MAX_DECIMAL_15_2 = Decimal("9999999999999.99")
+DATA_AS_OF = datetime.strptime("2026-09-03 23:59:59.999999", "%Y-%m-%d %H:%M:%S.%f")
 
 
-def fail(message: str) -> None:
+def read_csv(name: str) -> list[dict[str, str]]:
+    with (CSV_DIR / name).open("r", encoding="utf-8", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def sha256(path: Path) -> str:
+    h = hashlib.sha256(path.read_bytes())
+    return h.hexdigest()
+
+
+def fail(errors: list[str], message: str) -> None:
     errors.append(message)
 
 
-def warn(message: str) -> None:
-    warnings.append(message)
-
-
-def rows(name: str) -> list[dict[str, str]]:
-    path = CSV_DIR / name
-    if not path.exists():
-        fail(f"Missing file: {path}")
-        return []
-    with path.open("r", encoding="utf-8", newline="") as f:
-        return list(csv.DictReader(f))
-
-
-def unique(data: list[dict[str, str]], key: str, label: str) -> None:
-    counts = Counter(r[key] for r in data)
-    dupes = [v for v, n in counts.items() if n > 1]
-    if dupes:
-        fail(f"{label}.{key} has duplicate values: {dupes[:10]}")
-
-
-def decimal(value: str, context: str) -> Decimal:
+def parse_uuid(value: str) -> bool:
     try:
-        d = Decimal(value)
-    except InvalidOperation:
-        fail(f"Invalid decimal in {context}: {value!r}")
-        return Decimal("0")
-    if d.as_tuple().exponent < -2:
-        fail(f"More than 2 decimal places in {context}: {value}")
-    return d
+        uuid.UUID(value)
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
 
 
-def require_subset(values: set[str], allowed: set[str], context: str) -> None:
-    bad = values - allowed
-    if bad:
-        fail(f"Unexpected {context}: {sorted(bad)}")
+def parse_money(value: str, label: str, errors: list[str]) -> Decimal | None:
+    try:
+        parsed = Decimal(value)
+    except (InvalidOperation, ValueError):
+        fail(errors, f"{label}: invalid decimal {value!r}")
+        return None
+    if parsed.as_tuple().exponent < -2:
+        fail(errors, f"{label}: more than two decimal places: {value}")
+    if abs(parsed) > MAX_DECIMAL_15_2:
+        fail(errors, f"{label}: exceeds DECIMAL(15,2): {value}")
+    return parsed
 
 
 def main() -> int:
-    coa = rows("chart_of_accounts.csv")
-    vendors = rows("vendors.csv")
-    aliases = rows("vendor_aliases.csv")
-    txns = rows("transactions.csv")
-    payouts = rows("vendor_payouts.csv")
-    recs = rows("reconciliation_status.csv")
-    dictionary = rows("data_dictionary.csv")
+    errors: list[str] = []
+    known_quality_signals: list[str] = []
 
-    unique(coa, "account_code", "chart_of_accounts")
-    unique(vendors, "vendor_id", "vendors")
-    unique(aliases, "alias_id", "vendor_aliases")
-    unique(txns, "transaction_id", "transactions")
-    unique(payouts, "payout_id", "vendor_payouts")
-    unique(recs, "reconciliation_id", "reconciliation_status")
-    unique(recs, "transaction_id", "reconciliation_status")
+    actual_csv_files = {p.name for p in CSV_DIR.glob("*.csv")}
+    if actual_csv_files != EXPECTED_TABLE_FILES:
+        fail(errors, f"CSV file set mismatch: expected {sorted(EXPECTED_TABLE_FILES)}, got {sorted(actual_csv_files)}")
 
-    account_ids = {r["account_code"] for r in coa}
-    vendor_ids = {r["vendor_id"] for r in vendors}
-    txn_ids = {r["transaction_id"] for r in txns}
-    if {r["vendor_id"] for r in aliases} - vendor_ids:
-        fail("vendor_aliases contains unknown vendor_id")
-    if {r["default_account_code"] for r in vendors} - account_ids:
-        fail("vendors contains unknown default_account_code")
-    if {r["vendor_id"] for r in txns} - vendor_ids:
-        fail("transactions contains unknown vendor_id")
-    if {r["account_code"] for r in txns} - account_ids:
-        fail("transactions contains unknown account_code")
-    if {r["vendor_id"] for r in payouts} - vendor_ids:
-        fail("vendor_payouts contains unknown vendor_id")
-    if {r["invoice_transaction_id"] for r in payouts} - txn_ids:
-        fail("vendor_payouts contains unknown invoice_transaction_id")
-    if {r["transaction_id"] for r in recs} - txn_ids:
-        fail("reconciliation_status contains unknown transaction_id")
+    banks = read_csv("bank.csv")
+    accounts = read_csv("account.csv")
+    transactions = read_csv("transaction.csv")
+    dictionary = read_csv("data_dictionary.csv")
 
-    require_subset({r["status"] for r in txns}, {"posted","voided","draft"}, "transaction status")
-    require_subset({r["payout_status"] for r in payouts}, {"completed","pending","failed","reversed"}, "payout status")
-    require_subset({r["status"] for r in recs}, {"reconciled","unreconciled","partially_reconciled","disputed"}, "reconciliation status")
-    require_subset({r["currency"] for r in txns + payouts + recs}, {"INR"}, "currency")
+    if len(banks) != EXPECTED_COUNTS["bank"]:
+        fail(errors, f"bank row count: {len(banks)}")
+    if len(accounts) != EXPECTED_COUNTS["account"]:
+        fail(errors, f"account row count: {len(accounts)}")
+    if len(transactions) != EXPECTED_COUNTS["transaction"]:
+        fail(errors, f"transaction row count: {len(transactions)}")
+    if len(dictionary) != 16:
+        fail(errors, f"data dictionary should document 16 source columns, got {len(dictionary)}")
 
-    tx_by_id = {r["transaction_id"]: r for r in txns}
-    rec_by_tx = {r["transaction_id"]: r for r in recs}
-    for t in txns:
-        amount = decimal(t["signed_amount"], f"transaction {t['transaction_id']}")
-        if date.fromisoformat(t["posting_date"]) > DATA_AS_OF:
-            fail(f"Future posting date on {t['transaction_id']}")
-        if t["is_reversal"] == "true":
-            if not t["reverses_transaction_id"] or t["reverses_transaction_id"] not in txn_ids:
-                fail(f"Broken reversal link on {t['transaction_id']}")
-            if amount >= 0:
-                fail(f"Reversal must carry negative signed amount: {t['transaction_id']}")
-        elif t["reverses_transaction_id"]:
-            fail(f"Non-reversal has reverses_transaction_id: {t['transaction_id']}")
-        if t["status"] == "voided" and amount != 0:
-            warn(f"Voided transaction has nonzero amount: {t['transaction_id']}")
+    bank_codes = [row["bank_code"] for row in banks]
+    if set(bank_codes) != EXPECTED_BANK_CODES:
+        fail(errors, f"bank codes mismatch: {set(bank_codes)}")
+    if len(bank_codes) != len(set(bank_codes)):
+        fail(errors, "duplicate bank_code")
+    for row in banks:
+        if not row["bank_name"] or row["bank_name"] != row["bank_name"].upper():
+            fail(errors, f"bank_name must be canonical all caps: {row}")
+        if len(row["bank_code"]) > 10 or len(row["bank_name"]) > 150:
+            fail(errors, f"bank length overflow: {row}")
 
-    for p in payouts:
-        gross = decimal(p["gross_amount"], f"payout {p['payout_id']} gross")
-        fee = decimal(p["fee_amount"], f"payout {p['payout_id']} fee")
-        cash = decimal(p["net_cash_outflow"], f"payout {p['payout_id']} net")
-        if min(gross, fee, cash) < 0:
-            fail(f"Negative unsigned payout amount: {p['payout_id']}")
-        if p["payout_status"] == "pending":
-            if p["payout_date"]:
-                fail(f"Pending payout has payout_date: {p['payout_id']}")
-            if cash != 0:
-                fail(f"Pending payout has net cash outflow: {p['payout_id']}")
-        else:
-            if not p["payout_date"]:
-                fail(f"Non-pending payout lacks payout_date: {p['payout_id']}")
-            elif date.fromisoformat(p["payout_date"]) > DATA_AS_OF:
-                fail(f"Future payout date: {p['payout_id']}")
-        if p["payout_status"] == "completed" and cash != gross + fee:
-            fail(f"Completed payout net does not equal gross + fee: {p['payout_id']}")
-        if p["payout_status"] != "completed" and cash != 0:
-            fail(f"Non-completed payout has cash outflow: {p['payout_id']}")
-        if p["vendor_id"] != tx_by_id[p["invoice_transaction_id"]]["vendor_id"]:
-            fail(f"Payout vendor differs from invoice vendor: {p['payout_id']}")
+    account_ids = [row["account_id"] for row in accounts]
+    if len(account_ids) != len(set(account_ids)):
+        fail(errors, "duplicate account_id")
+    account_numbers = [row["account_number"] for row in accounts]
+    if len(account_numbers) != len(set(account_numbers)):
+        fail(errors, "fixture account_number values should be unique")
+    malformed_account_ids = 0
+    malformed_entity_ids = 0
+    for row in accounts:
+        if not parse_uuid(row["account_id"]):
+            malformed_account_ids += 1
+        if not parse_uuid(row["entity_id"]):
+            malformed_entity_ids += 1
+        if row["bank_code"] not in EXPECTED_BANK_CODES:
+            fail(errors, f"account references missing bank: {row}")
+        if len(row["account_number"]) > 20 or not row["account_number"]:
+            fail(errors, f"invalid account_number length: {row['account_id']}")
+        try:
+            int(row["program_id"])
+        except ValueError:
+            fail(errors, f"program_id must be integer: {row}")
+        parse_money(row["available_balance"], f"account {row['account_id']} balance", errors)
 
-    for r in recs:
-        reconciled = decimal(r["reconciled_amount"], f"reconciliation {r['reconciliation_id']} reconciled")
-        open_amount = decimal(r["unreconciled_amount"], f"reconciliation {r['reconciliation_id']} open")
-        txn_abs = abs(decimal(tx_by_id[r["transaction_id"]]["signed_amount"], f"transaction {r['transaction_id']}"))
-        if reconciled + open_amount != txn_abs:
-            fail(f"Reconciliation components do not tie to transaction: {r['transaction_id']} ({reconciled}+{open_amount}!={txn_abs})")
-        if r["status"] == "reconciled" and open_amount != 0:
-            fail(f"Reconciled row has open amount: {r['transaction_id']}")
-        if r["status"] in OPEN_STATUSES and open_amount <= 0:
-            fail(f"Open reconciliation row has non-positive open amount: {r['transaction_id']}")
+    account_set = set(account_ids)
+    transaction_ids = [row["transaction_id"] for row in transactions]
+    if len(transaction_ids) != len(set(transaction_ids)):
+        fail(errors, "duplicate transaction_id")
+    refs = Counter(row["transaction_reference_id"] for row in transactions if row["transaction_reference_id"])
+    duplicate_refs = {key: count for key, count in refs.items() if count > 1}
+    if duplicate_refs.get("DUP-REF-2026-001") != 2:
+        fail(errors, "expected duplicate-reference fixture is missing")
+    else:
+        known_quality_signals.append("one deliberately non-unique transaction reference")
 
-    posted_ids = {t["transaction_id"] for t in txns if t["status"] == "posted"}
-    missing_rec = sorted(posted_ids - set(rec_by_tx))
-    if missing_rec != ["TXN-MISSING-REC-001"]:
-        fail(f"Unexpected posted transactions missing reconciliation: {missing_rec[:20]}")
+    lookalike_counter = Counter()
+    malformed_transaction_ids = 0
+    null_descriptions = 0
+    zero_amounts = 0
+    raw_account_mentions = 0
+    for row in transactions:
+        tx_id = row["transaction_id"]
+        if not parse_uuid(tx_id):
+            malformed_transaction_ids += 1
+        if row["account_id"] not in account_set:
+            fail(errors, f"orphan transaction account_id: {tx_id}")
+        if row["transaction_type"] not in {"credit", "debit"}:
+            fail(errors, f"invalid transaction_type: {tx_id}")
+        try:
+            stamp = datetime.strptime(row["transaction_date"], "%Y-%m-%d %H:%M:%S.%f")
+            if stamp > DATA_AS_OF:
+                fail(errors, f"transaction after data_as_of: {tx_id}")
+        except ValueError:
+            fail(errors, f"invalid TIMESTAMP(6): {tx_id} {row['transaction_date']}")
+        amount = parse_money(row["transaction_amount"], f"transaction {tx_id} amount", errors)
+        if amount is not None:
+            if amount < 0:
+                fail(errors, f"fixture uses positive absolute amounts; negative found: {tx_id}")
+            if amount == 0:
+                zero_amounts += 1
+        description = row["description"]
+        if not description:
+            null_descriptions += 1
+        elif len(description) > 500:
+            fail(errors, f"description overflow: {tx_id}")
+        if len(row["transaction_reference_id"]) > 64:
+            fail(errors, f"transaction_reference_id overflow: {tx_id}")
+        if len(row["utr_number"]) > 256:
+            fail(errors, f"utr_number overflow: {tx_id}")
+        if description and any(number in description for number in account_numbers):
+            raw_account_mentions += 1
+        lookalike_counter[(row["account_id"], row["transaction_date"], row["transaction_type"], row["description"], row["transaction_amount"])] += 1
 
-    acme = sorted(r["vendor_id"] for r in aliases if r["normalized_alias"] == "acme")
-    abc = sorted(r["vendor_id"] for r in aliases if r["normalized_alias"] == "abc")
-    if acme != ["V0001","V0002"] or abc != ["V0044","V0045"]:
-        fail(f"Ambiguous alias fixtures invalid: acme={acme}, abc={abc}")
-    if any(r["is_ambiguous"] != "true" for r in aliases if r["normalized_alias"] in {"acme","abc"}):
-        fail("Ambiguous aliases are not flagged")
+    if malformed_account_ids or malformed_entity_ids or malformed_transaction_ids:
+        known_quality_signals.append(
+            f"opaque UUID-like IDs that fail strict UUID parsing: accounts={malformed_account_ids}, entities={malformed_entity_ids}, transactions={malformed_transaction_ids}"
+        )
 
-    required_special = {
-        "TXN-ANOM-001","TXN-DUP-001","TXN-DUP-002","TXN-REV-ORIG","TXN-REV-001",
-        "TXN-PROMPT-001","TXN-MISSING-REC-001","TXN-PART-001","TXN-PEND-001",
-        "TXN-FAIL-001","TXN-VOID-001"
-    }
-    if required_special - txn_ids:
-        fail(f"Missing planted transaction fixtures: {sorted(required_special - txn_ids)}")
-    payout_ids = {p["payout_id"] for p in payouts}
-    required_payouts = {"PAY-ANOM-001","PAY-DUP-001","PAY-DUP-002","PAY-PROMPT-001","PAY-PART-001","PAY-PEND-001","PAY-FAIL-001"}
-    if required_payouts - payout_ids:
-        fail(f"Missing planted payout fixtures: {sorted(required_payouts - payout_ids)}")
-    prompt_text = tx_by_id["TXN-PROMPT-001"]["description"]
-    if "IGNORE PRIOR INSTRUCTIONS" not in prompt_text:
-        fail("Prompt-injection fixture is missing")
-    if Decimal(rec_by_tx["TXN-PART-001"]["unreconciled_amount"]) != Decimal("200000.00"):
-        fail("Partial reconciliation fixture does not have INR 200,000 open")
+    duplicate_lookalikes = sum(1 for count in lookalike_counter.values() if count > 1)
+    if duplicate_lookalikes < 1:
+        fail(errors, "expected duplicate-lookalike pair missing")
+    else:
+        known_quality_signals.append(f"{duplicate_lookalikes} deliberate duplicate-lookalike signature(s)")
+    if null_descriptions < 1:
+        fail(errors, "expected null description fixture missing")
+    else:
+        known_quality_signals.append(f"{null_descriptions} transaction(s) with null description")
+    if zero_amounts < 1:
+        fail(errors, "expected zero-amount fixture missing")
+    else:
+        known_quality_signals.append(f"{zero_amounts} zero-amount transaction(s)")
+    if raw_account_mentions < 1:
+        fail(errors, "expected account-number-in-description fixture missing")
+    else:
+        known_quality_signals.append(f"{raw_account_mentions} narration(s) require account-number redaction")
 
-    dupes = [p for p in payouts if p["payout_id"] in {"PAY-DUP-001","PAY-DUP-002"}]
-    if len(dupes) != 2 or len({(p["vendor_id"],p["payout_date"],p["gross_amount"],p["bank_reference"]) for p in dupes}) != 1:
-        fail("Duplicate payout fixture does not share expected signals")
+    manifest = json.loads((ROOT / "data" / "dataset_manifest.json").read_text(encoding="utf-8"))
+    if manifest["source_tables"] != ["bank", "account", "transaction"]:
+        fail(errors, f"manifest source tables are wrong: {manifest['source_tables']}")
+    if manifest["row_counts"] != {"bank": len(banks), "account": len(accounts), "transaction": len(transactions)}:
+        fail(errors, "manifest row counts do not match CSVs")
+    for file_entry in manifest["files"]:
+        path = ROOT / file_entry["path"]
+        if not path.exists():
+            fail(errors, f"manifest file missing: {path}")
+        elif sha256(path) != file_entry["sha256"]:
+            fail(errors, f"manifest hash mismatch: {path}")
 
-    travel_ids = {
-        t["transaction_id"] for t in txns
-        if t["account_code"] in {"6200","6210","6220"}
-        and date(2026,8,24) <= date.fromisoformat(t["posting_date"]) < date(2026,8,31)
-    }
-    travel_open = [r for r in recs if r["transaction_id"] in travel_ids and r["status"] in OPEN_STATUSES]
-    if travel_open:
-        fail(f"Travel zero-result fixture has open records: {[r['transaction_id'] for r in travel_open]}")
+    metadata = json.loads((ROOT / "data" / "company_metadata.json").read_text(encoding="utf-8"))
+    if metadata["currency"] != "INR" or metadata["timezone"] != "Asia/Kolkata":
+        fail(errors, "metadata currency/timezone mismatch")
+    if metadata["scope"] != ["bank", "account", "transaction"]:
+        fail(errors, "metadata scope mismatch")
 
-    # Recompute load-bearing gold metrics independently.
-    expected = json.loads((EVAL_DIR / "expected_aggregates.json").read_text(encoding="utf-8"))
-    def sum_completed(start: date, end: date) -> Decimal:
-        return sum((Decimal(p["gross_amount"]) for p in payouts if p["payout_status"] == "completed" and start <= date.fromisoformat(p["payout_date"]) < end), Decimal("0.00"))
-    aug = sum_completed(date(2026,8,1), date(2026,9,1)).quantize(Decimal("0.01"))
-    jul = sum_completed(date(2026,7,1), date(2026,8,1)).quantize(Decimal("0.01"))
-    if str(aug) != expected["metrics"]["august_2026_completed_vendor_payout_gross"]:
-        fail("August expected aggregate drift")
-    if str(jul) != expected["metrics"]["july_2026_completed_vendor_payout_gross"]:
-        fail("July expected aggregate drift")
-    open_rows = [r for r in recs if r["status"] in OPEN_STATUSES]
-    if len(open_rows) != expected["metrics"]["open_reconciliation_count"]:
-        fail("Open reconciliation count expected aggregate drift")
-    open_sum = sum((Decimal(r["unreconciled_amount"]) for r in open_rows), Decimal("0.00")).quantize(Decimal("0.01"))
-    if str(open_sum) != expected["metrics"]["open_reconciliation_amount"]:
-        fail("Open reconciliation amount expected aggregate drift")
+    edge_rows = read_csv("../evaluation/edge_case_manifest.csv") if False else None
+    with (EVAL_DIR / "edge_case_manifest.csv").open("r", encoding="utf-8", newline="") as handle:
+        edges = list(csv.DictReader(handle))
+    tx_set = set(transaction_ids)
+    for edge in edges:
+        if edge["transaction_id"] not in tx_set:
+            fail(errors, f"edge manifest points to missing transaction: {edge}")
 
-    if len(dictionary) < 70:
-        fail(f"Data dictionary unexpectedly short: {len(dictionary)} rows")
-    benchmark_rows = []
-    with (EVAL_DIR / "benchmark_questions.csv").open("r", encoding="utf-8", newline="") as f:
-        benchmark_rows = list(csv.DictReader(f))
-    if len(benchmark_rows) < 20:
-        fail("Benchmark set must contain at least 20 questions")
-    if len({r["question_id"] for r in benchmark_rows}) != len(benchmark_rows):
-        fail("Duplicate benchmark question IDs")
+    with (EVAL_DIR / "benchmark_cases.jsonl").open("r", encoding="utf-8") as handle:
+        cases = [json.loads(line) for line in handle if line.strip()]
+    if len(cases) != EXPECTED_COUNTS["benchmarks"]:
+        fail(errors, f"expected {EXPECTED_COUNTS['benchmarks']} benchmark cases, got {len(cases)}")
+    if len({case["case_id"] for case in cases}) != len(cases):
+        fail(errors, "duplicate benchmark case_id")
+    required_unsupported = {"Q019", "Q020", "Q021", "Q022", "Q025"}
+    if not required_unsupported.issubset({c["case_id"] for c in cases if c["expected_disposition"] == "unsupported"}):
+        fail(errors, "unsupported-schema benchmark cases missing")
 
-    print("Dataset validation summary")
-    print(f"  Accounts:       {len(coa)}")
-    print(f"  Vendors:        {len(vendors)}")
-    print(f"  Vendor aliases: {len(aliases)}")
-    print(f"  Transactions:   {len(txns)}")
-    print(f"  Payouts:        {len(payouts)}")
-    print(f"  Reconciliation: {len(recs)}")
-    print(f"  Benchmarks:     {len(benchmark_rows)}")
-    print(f"  Warnings:       {len(warnings)}")
-    for message in warnings:
-        print(f"WARNING: {message}")
+    # Recompute the most important gold totals from source rows.
+    fixture = Fixture(banks, accounts, transactions)
+    aug = filter_transactions(fixture, start="2026-08-01 00:00:00.000000", end="2026-09-01 00:00:00.000000")
+    gold = json.loads((EVAL_DIR / "expected_aggregates.json").read_text(encoding="utf-8"))
+    for metric in ["debit_total", "credit_total", "net_cash_flow", "transaction_count"]:
+        actual = aggregate_metric(metric, aug)
+        if actual != gold["august_2026"][metric]:
+            fail(errors, f"gold aggregate mismatch for August {metric}: {actual} vs {gold['august_2026'][metric]}")
+    balance = current_balance(fixture)
+    balance.pop("records", None)
+    if balance != gold["current_available_balance"]:
+        fail(errors, "current available-balance gold mismatch")
+
+    forbidden_old_files = [
+        ROOT / "data" / "csv" / "vendors.csv",
+        ROOT / "data" / "csv" / "vendor_payouts.csv",
+        ROOT / "data" / "csv" / "reconciliation_status.csv",
+        ROOT / "data" / "csv" / "chart_of_accounts.csv",
+        ROOT / "scripts" / "load_postgres.py",
+        ROOT / "database" / "views.sql",
+    ]
+    for path in forbidden_old_files:
+        if path.exists():
+            fail(errors, f"obsolete schema artifact still exists: {path.relative_to(ROOT)}")
+
+    print(f"Banks:                 {len(banks)}")
+    print(f"Accounts:              {len(accounts)}")
+    print(f"Transactions:          {len(transactions)}")
+    print(f"Data-dictionary rows:  {len(dictionary)}")
+    print(f"Benchmark cases:       {len(cases)}")
+    print(f"Edge-case records:     {len(edges)}")
+    print("Known quality signals:")
+    for signal in known_quality_signals:
+        print(f"  - {signal}")
+
     if errors:
-        for message in errors:
-            print(f"ERROR: {message}", file=sys.stderr)
-        print(f"FAILED with {len(errors)} error(s)", file=sys.stderr)
+        print("\nFAIL")
+        for error in errors:
+            print(f"  - {error}")
         return 1
-    print("PASS: referential integrity, accounting invariants, planted edge cases, and gold aggregates are valid.")
+    print("\nPASS: dataset integrity, finance semantics, privacy fixtures, and gold totals")
     return 0
 
 

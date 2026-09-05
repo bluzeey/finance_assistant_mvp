@@ -1,1 +1,0 @@
-"""Typed finance domain helpers."""

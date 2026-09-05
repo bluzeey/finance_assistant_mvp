@@ -1,70 +1,194 @@
 # Development Runbook
 
-## Local services
+## 1. Prerequisites
 
-Local service orchestration is intentionally not part of this repository. Start PostgreSQL with your preferred local or hosted setup, create a `ledgerproof` database, and set `DATABASE_URL` in `.env`.
+- Python 3.12+
+- Docker and Docker Compose
+- Node.js 20+ for the React application
+- optional GitHub CLI for publishing
+
+## 2. Validate the repository without services
 
 ```bash
-cp .env.example .env
-# edit DATABASE_URL if your PostgreSQL credentials differ
 python -m pip install -r requirements-tools.txt
-python scripts/load_postgres.py --truncate
+python scripts/generate_dataset.py --check
 python scripts/validate_dataset.py
 python scripts/validate_repository.py
+python -m unittest discover -s tests -v
 ```
 
-## Regenerating data
+These commands validate fixture determinism, source invariants, contract schemas, benchmark parity,
+privacy helpers and runtime/gold isolation.
+
+## 3. Regenerate source-aligned data
+
+Only run regeneration when intentionally changing `scripts/generate_dataset.py` or the source
+contract:
 
 ```bash
 python scripts/generate_dataset.py
 python scripts/validate_dataset.py
+python -m unittest discover -s tests -v
 ```
 
-Regeneration changes evaluation values if financial generation logic changes. Review the diff carefully. Never update gold solely to make a failing implementation pass.
+Review the diff for all generated CSV, manifest, edge-case and benchmark files. A fixture change
+must update the dataset version if it changes visible records or expected results.
 
-## Agent task start
+## 4. Start MySQL and Redis
 
-1. Select an unblocked ticket from `project_backlog.csv`.
-2. Read `AGENTS.md`, master spec, relevant contracts, and tests.
-3. State assumptions in the task/PR.
-4. Implement the smallest vertical behavior.
-5. Add success and failure regression tests.
-6. Run relevant validators/tests.
-7. Update contracts/docs if behavior changed.
-8. Leave a handoff with files, tests, risks, and screenshot/fixture.
+```bash
+cp .env.example .env
+docker compose up -d mysql redis
+docker compose ps
+```
 
-## Contract change
+Wait for the MySQL health check, then load the fixture:
 
-A contract change must update:
+```bash
+python scripts/load_mysql.py --truncate
+```
 
-- JSON Schema/OpenAPI/semantic registry;
-- backend types/serializers;
-- frontend types/components;
-- fixtures/samples;
-- contract tests;
-- master/specialist docs;
-- affected backlog acceptance criteria.
+The loader:
 
-## Data issue triage
+- creates the exact three source tables;
+- sets the session timezone to `+05:30`;
+- loads bank, then account, then transaction;
+- applies indexes;
+- validates counts and foreign keys;
+- runs transactionally where supported.
 
-Do not patch CSV rows manually without updating the generator. Add or modify generation logic, regenerate, validate, and review manifest/hash changes.
+Useful local SQL:
 
-## Performance work
+```bash
+docker compose exec mysql mysql -uledgerproof -pledgerproof ledgerproof
+```
 
-Record:
+```sql
+SELECT COUNT(*) FROM bank;
+SELECT COUNT(*) FROM account;
+SELECT COUNT(*) FROM `transaction`;
+SELECT SUM(transaction_amount)
+FROM `transaction`
+WHERE transaction_type = 'debit'
+  AND transaction_date >= '2026-08-01 00:00:00'
+  AND transaction_date <  '2026-09-01 00:00:00';
+```
 
-- commit, dataset row counts, hardware/environment limits;
-- exact query name/plan and parameters class;
-- indexes/views;
-- warm/cold protocol;
-- p50/p95 and sample count;
-- `EXPLAIN (ANALYZE, BUFFERS)` output;
-- regression threshold.
+Expected counts are 10 banks, 30 accounts and 2,426 transactions. Expected August debit total is
+`121758278.46` across 205 rows.
 
-## Production-like failures
+## 5. Backend setup
 
-- model unavailable → deterministic-supported questions may proceed; otherwise safe interpretation error;
-- database timeout → no number, error receipt/problem response;
-- background worker/cache unavailable → core synchronous answers continue; async export/evaluation reports degraded;
-- stale context → 409 and frontend reconciliation;
-- export mismatch → fail and regenerate from receipt snapshot, never serve divergent file.
+After the Django scaffold exists:
+
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+python -m pip install -e '.[dev]'
+python manage.py migrate
+python manage.py runserver
+```
+
+Run checks:
+
+```bash
+pytest
+ruff check .
+mypy .
+```
+
+Use a separate read-only MySQL credential for normal source queries. Django application tables
+should be prefixed `app_` and must not alter the meaning of the three source tables.
+
+## 6. Frontend setup
+
+After the React scaffold exists:
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+Run checks:
+
+```bash
+npm run typecheck
+npm run lint
+npm run test
+npm run test:e2e
+npm run build
+```
+
+Configure the frontend origin/API URL in `.env` without committing secrets.
+
+## 7. Clean reset
+
+```bash
+docker compose down -v
+docker compose up -d mysql redis
+python scripts/load_mysql.py --truncate
+```
+
+Do not run reset commands against any non-local database.
+
+## 8. Common failures
+
+### MySQL rejects `transaction`
+
+Quote the table name as `` `transaction` ``. It is a reserved identifier.
+
+### Timezone tables are unavailable
+
+The implementation uses the numeric MySQL session offset `+05:30`, which does not require named
+server timezone tables. Keep ISO timestamps with `+05:30` at API boundaries.
+
+### Totals differ by a paise
+
+Check for float conversion. MySQL columns must be `DECIMAL(15,2)`, Python must use `Decimal`, and
+JSON must carry strings.
+
+### Month boundary row is missing or duplicated
+
+Use a half-open range: `>= start` and `< end_exclusive`. Do not use `BETWEEN` for calendar periods.
+
+### Account/UTR appears in a response
+
+Stop the demo. Verify the repository privacy mapper runs before serialization/model context and
+scan descriptions for embedded account numbers. The raw source CSV intentionally contains values
+that should not cross the boundary.
+
+### Reference lookup returns one of several rows
+
+`transaction_reference_id` is not unique. Return all exact matches and mark the answer qualified.
+Do not use `.first()` without proving uniqueness.
+
+### “Vendor payout” question produces a total
+
+This is a semantic failure. The schema does not support authoritative vendor or payout facts.
+Return unsupported and offer debit/description-search alternatives without relabelling them.
+
+### Stale follow-up overwrites current state
+
+Carry `context_version`; reject mismatches with 409 and refresh the state before retrying.
+
+## 9. Bundle creation
+
+```bash
+python scripts/build_bundle.py --output /mnt/data/finance_ai_bot.zip
+```
+
+The archive excludes `.git`, environments, secrets, caches, node modules and runtime exports.
+
+## 10. Pre-demo smoke sequence
+
+1. Run all four root checks.
+2. Recreate and load MySQL.
+3. Verify the canonical August total directly in SQL.
+4. Start backend and frontend.
+5. Execute the five-turn demo in `DEMO_AND_SUBMISSION_PLAN.md`.
+6. Download CSV and XLSX; compare amount/count/hash and scan privacy.
+7. Test 360px layout and keyboard navigation.
+8. Turn off the model temporarily and confirm deterministic source pages still work and errors are
+   clear.

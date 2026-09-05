@@ -1,314 +1,602 @@
-# Bug, Failure-Mode, and QA Playbook
+# Bug and QA Playbook
 
-## 1. Quality doctrine
+This playbook anticipates the failures most likely to produce a wrong finance answer, privacy leak,
+misleading UI or unreliable hackathon demo. Every P0/P1 bug fix requires a regression test.
 
-A finance assistant must fail closed. Fluency, speed, and attractive UI never justify returning an unverified number. The severity model therefore prioritises incorrect financial answers, wrong source lineage, silent ambiguity, and stale context above ordinary presentation defects.
+---
 
-### Severity
+## 1. Severity model
 
-- **P0 — Trust or data integrity failure:** can return a wrong number as trustworthy, corrupt context, execute unsafe behavior, or make evidence disagree with the answer. Blocks demo/submission.
-- **P1 — Material workflow failure:** produces misleading interpretation, broken verification/export, severe accessibility issue, or common workflow failure. Must fix before submission unless explicitly waived with a safe fallback.
-- **P2 — Polish or uncommon edge:** does not change the financial meaning but harms usability, consistency, or presentation.
-- **P3 — Backlog:** low-impact enhancement.
-
-### Answer safety rule
-
-When a P0/P1 validation or infrastructure failure occurs, return no financial amount. A previously rendered immutable receipt may remain visible, but it must not be relabelled as the result of the failed request.
-
-## 2. P0 risk register
-
-| ID | Failure | Why it is dangerous | Prevention | Required test |
-|---|---|---|---|---|
-| P0-001 | Model changes or invents a number | Fluent false financial answer | DB computes; template/placeholder composition; numeric-token allow-list | Inject model output with altered value and assert response is rejected |
-| P0-002 | Model produces SQL | SQL injection and unbounded access | Model schema has no SQL field; compiler allow-list | Adversarial “run this SQL” question returns refusal/valid plan only |
-| P0-003 | User text interpolated into SQL | Injection or broken query | Bound parameters; enum identifiers | Static scan and malicious vendor/search strings |
-| P0-004 | Join multiplies source rows | Inflated totals that look plausible | Declared grain; count distinct; independent source-grain sum | Add one-to-many alias join and assert validation failure |
-| P0-005 | Wrong date field used | Correct sum over wrong business concept | Metric registry owns date field; receipt displays it | Payout metric must use payout_date, spend must use posting_date |
-| P0-006 | Inclusive end-date off by one | Missing/double-counted period boundaries | Half-open intervals everywhere | Month end, leap day, and “through” tests |
-| P0-007 | Server clock anchors relative dates | Results drift from static dataset | Anchor on `data_as_of` | Freeze system date to another year; results unchanged |
-| P0-008 | Pending/failed/reversed payout counted as paid | Overstates paid amount/cash | Mandatory completed filter | Fixtures `PAY-PEND-001`, `PAY-FAIL-001`, `PAY-REV-ORIG` excluded |
-| P0-009 | Credits/reversals dropped from spend | Overstates expense | Sum signed amounts | `TXN-REV-ORIG` + `TXN-REV-001` net to zero |
-| P0-010 | Partial reconciliation counts full transaction | Overstates open amount | Sum `unreconciled_amount` | `TXN-PART-001` returns INR 200,000, not 500,000 |
-| P0-011 | Ambiguous alias silently merges/selects | Wrong vendor answer | exact alias ambiguity gate | “Acme” and “ABC” show choices and no number |
-| P0-012 | Fuzzy resolver auto-selects weak candidate | Wrong vendor answer | fuzzy results are candidates only | Near-collision names trigger clarification |
-| P0-013 | Prompt injection inside a record controls output | Data becomes instructions | parser never sees records; escape data; fact-only composer | `TXN-PROMPT-001` leaves plan and amount unchanged |
-| P0-014 | Unsupported field answered from model knowledge | Fabricated finance result | schema support gate | CFO approver and cash forecast questions return not-answerable |
-| P0-015 | Validation failure still shows partial number | False confidence | fail-closed receipt builder | Force tie-out failure and assert amount is null/absent |
-| P0-016 | Export differs from answer | Audit artifact cannot reproduce UI | export by immutable query ID; parity check | Row count, hash, and total match receipt |
-| P0-017 | Source rows belong to another query | False evidence | query-scoped lineage/cursor signature | Cross-query cursor rejected |
-| P0-018 | Stale request overwrites later correction | Wrong active context | context version CAS; client request identity | Slow request A, correction B, then A returns; B remains current |
-| P0-019 | Duplicate submit creates two turns/queries | Confusing audit and repeated work | idempotency key and pending guard | Double click and network retry yield one turn |
-| P0-020 | Reset clears UI only, not backend state | Old filters leak into next question | reset endpoint and version update | Reset then “what about last month?” requires metric/context |
-| P0-021 | Runtime imports gold answers | Demo cheats and cannot generalise | process/package separation; import scan | CI fails on `expected_aggregates` reference in runtime |
-| P0-022 | Floating-point arithmetic | Rounding drift | Decimal/NUMERIC only | Scan types and test 0.1 + 0.2-style cases |
-| P0-023 | Mixed currency aggregated | Meaningless total | currency invariant or grouping | Inject non-INR row and require block/segmentation |
-| P0-024 | Query runs with write-capable DB role | Prompt/query defect can mutate data | SELECT-only application role | permission test for INSERT/UPDATE/DELETE |
-| P0-025 | Raw HTML/script rendered from record/model | XSS | React escaping; no `dangerouslySetInnerHTML` | Hostile description renders as text |
-| P0-026 | Cache returns result from another dataset snapshot | Stale/incorrect answer | snapshot/version in cache key | Change dataset version and assert miss |
-| P0-027 | Comparison mixes different filters | Misleading change | canonical current/previous plans share compatible filters | Mutation test changes vendor in one side and fails validation |
-| P0-028 | Source result is truncated before aggregation | Understated total | aggregate in DB before row limit | >500 source rows still produce full total |
-| P0-029 | Non-completed payout has cash outflow | Semantic corruption | DB constraint and validator | Fixture mutation fails load/validation |
-| P0-030 | Reconciliation components do not tie | Open amount cannot be trusted | invariant check | Mutate component by INR 0.01 and block answer |
-
-## 3. P1 risk register
-
-| ID | Failure | Expected behavior/test |
+| Severity | Definition | Examples |
 |---|---|---|
-| P1-001 | “Recent” silently defaults | Ask user to choose a period |
-| P1-002 | Bare Q2 silently interpreted | Ask calendar/fiscal and year |
-| P1-003 | “Spend” maps inconsistently between turns | Show metric chip; correction changes metric explicitly |
-| P1-004 | Month-before comparison uses unequal duration | Derive matching period; show both exact ranges |
-| P1-005 | Previous period has zero denominator | Show absolute change and say percentage is not meaningful |
-| P1-006 | Empty records mistaken for unavailable data | Distinguish verified zero, qualified zero, and not-answerable |
-| P1-007 | Missing reconciliation row treated as reconciled | Show coverage warning and qualify relevant answers |
-| P1-008 | Duplicate candidates silently removed | Include both and show warning |
-| P1-009 | Duplicate warning called confirmed fraud/duplicate | Use “possible duplicate” and explain rule |
-| P1-010 | Anomaly labelled fraud | Use “unusual/outlier”; disclose threshold and median |
-| P1-011 | Too little history for anomaly baseline | Suppress or qualify anomaly callout |
-| P1-012 | Breakdown shows top rows but labels as full total | Label truncation and separate overall total |
-| P1-013 | Chart and table use different data/rounding | Same response payload; parity assertion |
-| P1-014 | Indian-formatted amount becomes API value | API remains canonical decimal; format only in UI |
-| P1-015 | Negative credit lacks sign semantics | Label credit/reversal and retain negative value |
-| P1-016 | Null and zero conflated | Typed nullable values and explicit zero rendering |
-| P1-017 | Explorer calculates totals from current page | All totals come from backend aggregate |
-| P1-018 | Offset pagination skips/duplicates after changes | Cursor with stable unique sort |
-| P1-019 | Cursor accepted after filters change | Cursor bound to query/filter hash |
-| P1-020 | CSV formula injection | Prefix dangerous text fields; preserve typed negatives |
-| P1-021 | Excel export runs untrusted formulas | Write untrusted text as literal cells; no formula interpretation |
-| P1-022 | Export omits metadata/filters | Include receipt metadata or companion sheet |
-| P1-023 | Export timeout leaves ambiguous state | Clear failure, no partial file, safe retry |
-| P1-024 | Client retry uses new idempotency key | Preserve key unless message changes |
-| P1-025 | User edits draft after timeout but reuses key | New key required for changed body; backend returns 409 on mismatch |
-| P1-026 | Conversation fetch overwrites optimistic pending message | Reconcile by client_turn_id |
-| P1-027 | Evidence panel jumps to late answer | Keep user selection until explicitly changed |
-| P1-028 | Context chips are client guesses | Render server QueryState only |
-| P1-029 | Correction leaves incompatible comparison/filter | State merger clears dependent state |
-| P1-030 | Reset deletes audit history unintentionally | Clear QueryState only unless conversation deletion requested |
-| P1-031 | User pronoun has no stable referent | Ask clarification rather than guessing |
-| P1-032 | “Which vendor drove it?” implies causality | Say largest contribution/change, not cause |
-| P1-033 | Data freshness hidden | Every numeric answer shows data-as-of |
-| P1-034 | Stale source labelled live | Freshness states based on metadata, not animation |
-| P1-035 | Model/prompt version absent | Persist in receipt/audit/evaluation |
-| P1-036 | Prompt parser failure falls back to generic chatbot | Return safe interpretation error |
-| P1-037 | Model schema retry loops | At most one bounded retry; then fail safely |
-| P1-038 | Large group-by overwhelms response | server max rows and safe top-N with truncation label |
-| P1-039 | Arbitrary sort/column identifier injected | enum-backed sort and compiler identifiers |
-| P1-040 | Query timeout returns cached unrelated value | timeout has no current amount; cache key exact |
-| P1-041 | Database queries span changing snapshots | repeatable snapshot or materialised lineage |
-| P1-042 | Source-ID hash is order-dependent accidentally | deterministic sort before hashing |
-| P1-043 | Source-ID list in receipt implies completeness when truncated | explicit truncated flag and total count |
-| P1-044 | PII/raw questions sent to analytics | redact; metadata-only analytics |
-| P1-045 | Evaluation endpoint exposes gold in production mode | disabled and route absent by configuration |
-| P1-046 | Error leaks SQL/prompt/secret | problem+json safe message plus trace ID only |
-| P1-047 | CORS permits arbitrary origins | configured frontend origin only |
-| P1-048 | Model output rendered as Markdown with unsafe links/HTML | safe renderer or plain text; strip HTML |
-| P1-049 | Focus moves unexpectedly when answer arrives | announce via live region without stealing focus |
-| P1-050 | Status relies only on color | icon + label + text |
-| P1-051 | Evidence sheet traps/loses focus | tested focus trap and restoration |
-| P1-052 | Mobile large amounts overflow | tabular number styles, wrap policy, 360 px visual test |
-| P1-053 | Sticky composer covers final rows | safe-area and measured bottom padding |
-| P1-054 | Error boundary hides prior verified receipt | page-level isolation; immutable prior results remain visible |
-| P1-055 | Data-health check timestamp absent | show last run and dataset version |
-| P1-056 | Check severity inconsistent with answer status | central policy mapping, not component logic |
-| P1-057 | Alias table duplicated in frontend | fetch glossary/metadata from backend |
-| P1-058 | Account category and vendor category confused | distinct labels and semantic fields |
-| P1-059 | Posting and payout date displayed without marker | highlight date field used in receipt/records |
-| P1-060 | “Last week” timezone/boundary mismatch | backend calendar rule in Asia/Kolkata |
+| P0 | Wrong official number, sensitive data leak, arbitrary query execution, receipt/source mismatch | float rounding changes amount; raw account number returned; vendor payout fabricated |
+| P1 | Materially wrong interpretation or evidence, blocked core flow, stale-context corruption | wrong month, wrong bank, reference fuzzy matched, export rows differ |
+| P2 | Recoverable functional/UX/accessibility defect | filter reset issue, focus loss, table truncation |
+| P3 | Cosmetic/non-blocking | spacing, minor copy inconsistency |
 
-## 4. P2 presentation and usability register
+Release/demo is blocked by any open P0 or unmitigated P1.
 
-- long vendor names truncate without accessible full label;
-- tooltips inaccessible by keyboard;
-- table header loses shadow/contrast while scrolling;
-- nav current state missing;
-- empty filters consume excessive vertical space;
-- rows jump when skeleton height differs;
-- evidence tabs reset when panel closes accidentally;
-- copy-answer omits period or status;
-- copy receipt includes internal-only fields unexpectedly;
-- chart axis abbreviates values without exact tooltip/table;
-- negative values use hyphen instead of proper minus inconsistently;
-- date formatting differs across pages;
-- query ID cannot be copied;
-- row-detail links break browser Back behavior;
-- accordion animation ignores reduced-motion preference;
-- large warning text dominates direct answer;
-- buttons shift when spinner appears;
-- mobile table action menu renders off-screen;
-- horizontal scroll has no affordance;
-- skeleton announced repeatedly to screen readers;
-- toast disappears before it can be read;
-- CSV/XLSX download names are generic;
-- stale content appears blank during background refresh;
-- browser title does not include page/conversation;
-- no favicon/app identity;
-- dataset synthetic label missing on one route;
-- focus order reaches hidden evidence controls;
-- print layout cuts receipt details;
-- no empty state for deleted conversation;
-- inconsistent use of “payout,” “payment,” and “spend.”
+---
 
-## 5. Test pyramid and environments
+## 2. Mandatory regression fixture
 
-### Fast checks on every commit
+`evaluation/edge_case_manifest.csv` contains records for:
 
-- Ruff/format/mypy;
-- TypeScript strict compile and lint;
-- JSON schema validation;
-- OpenAPI parse;
-- dataset validator;
-- unit tests for dates, money, entity resolution, QueryState, compiler, templates;
-- frontend component tests;
-- runtime import scan for gold fixtures.
+- month boundaries at microsecond precision;
+- duplicate-lookalike transactions;
+- a non-unique plaintext reference;
+- null description;
+- zero amount;
+- maximum `DECIMAL(15,2)`;
+- Unicode narration;
+- an account number embedded in narration;
+- UTR present while plaintext reference is null;
+- case-sensitive reference;
+- prompt injection and script text;
+- one organiser-provided malformed strict UUID-like ID.
 
-### Pull-request checks
+Agents may add edge cases but must not remove them to simplify implementation.
 
-- PostgreSQL integration tests;
-- contract tests;
-- benchmark subset including every P0 case;
-- Playwright critical flows at desktop and 360 px;
-- accessibility scan plus keyboard smoke test;
-- export parity tests;
-- migration up/down on disposable database;
-- dependency and secret scan.
+---
 
-### Release/submission checks
+## 3. Data/schema bugs
 
-- full 22-case single-turn benchmark;
-- multi-turn benchmark;
-- prompt-injection suite;
-- data mutation/invariant suite;
-- performance run on declared scaled dataset;
-- browser matrix: current Chrome plus one additional browser if available;
-- production build served against configured backend;
-- README clean-room setup;
-- demo rehearsal with network fallback plan;
-- no console errors or failed network requests on demo path.
+### DB-001 — unquoted `transaction` table
 
-## 6. Dataset mutation tests
+**Failure:** Raw SQL fails because `transaction` is parsed as a keyword.  
+**Severity:** P1  
+**Prevention:** Always quote as `` `transaction` ``; use Django ORM where suitable.  
+**Tests:** Execute every raw compiler query against MySQL; repository grep/validator.
 
-Gold happy-path fixtures alone can hide weak validation. Create test-only mutations:
+### DB-002 — strict UUID coercion rejects source row
 
-1. add a second alias row join and confirm aggregate tie-out catches duplication;
-2. change a completed payout to failed without changing expected query and verify exclusion;
-3. put payout date on `2026-09-01` and verify August excludes it;
-4. change a transaction credit to positive and ensure net-spend gold fails;
-5. remove a reconciliation row and verify coverage warning;
-6. set partial open amount to full transaction and block due to tie-out;
-7. set a non-INR currency and block single-currency aggregate;
-8. duplicate a source ID and fail grain validation;
-9. insert more than two decimal places and fail precision;
-10. alter dataset version while reusing cache and require cache miss;
-11. add an HTML/script string to description and verify escaped display;
-12. prefix vendor text with `=` and verify CSV export sanitisation;
-13. create zero previous-period amount and test comparison wording;
-14. make anomaly history one row and verify low-history qualification;
-15. return model prose with a different numeric token and reject it.
+**Failure:** Serializer/model rejects `0178b656-4a7d-98e8-9540f6e24caf`.  
+**Severity:** P1  
+**Prevention:** Use bounded opaque strings, not UUIDField/JSON `format: uuid`.  
+**Tests:** Load and query the preserved row.
 
-## 7. Benchmark acceptance gates
+### DB-003 — FK join on wrong field
 
-Set gates before model selection. Recommended minimum for submission:
+**Failure:** Transaction joins by entity/bank/number and duplicates or loses rows.  
+**Severity:** P0  
+**Prevention:** `transaction.account_id → account.account_id`; `account.bank_code → bank.bank_code` only.  
+**Tests:** Source count and hash against gold; orphan checks.
 
-- 100% final numeric accuracy on supported gold cases;
-- 100% pass on planted P0 finance-semantic cases;
-- 100% unsupported-field refusal on benchmark cases;
-- 100% ambiguous Acme/ABC blocking;
-- 100% prompt-injection resistance on fixture cases;
-- at least 95% exact/field-level QueryPlan accuracy overall;
-- 100% source-ID completeness or documented hash/lineage equivalence;
-- at least 95% multi-turn state accuracy, with reset/correction cases mandatory;
-- zero answer/export parity mismatches;
-- p95 interactive latency within declared target;
-- smallest model meeting all safety gates wins; a smaller model does not qualify merely because it is cheaper.
+### DB-004 — obsolete tables reintroduced
 
-If a model fails a safety gate, improve deterministic parsing/resolution or choose the next-smallest candidate. Do not lower the safety threshold to preserve a model-choice narrative.
+**Failure:** Agent rebuilds vendor/payout/reconciliation tables from earlier docs and presents inferred data as source.  
+**Severity:** P0  
+**Prevention:** Three-table invariant in AGENTS/CI/repository validator.  
+**Tests:** DDL/source-file set check; unsupported benchmark cases.
 
-## 8. Manual exploratory scripts
+### DB-005 — program `04` treated as string distinct from `4`
 
-### Script A: grounding
+**Failure:** Filter misses program 4 accounts.  
+**Severity:** P1  
+**Prevention:** Parse/store integer.  
+**Tests:** Q030 and explicit `04` natural-language resolver case.
 
-1. Ask August vendor payout total.
-2. Open receipt and note row count/date/status.
-3. Open records and locate anomaly/duplicate rows.
-4. Export and compare metadata.
-5. Change period through a chip and confirm a new immutable turn.
+### DB-006 — default collation makes reference case-insensitive
 
-### Script B: ambiguity
+**Failure:** `caseref-abc-001` matches `CaseRef-AbC-001`.  
+**Severity:** P1  
+**Prevention:** Binary comparison/collation.  
+**Tests:** Q027; MySQL integration.
 
-1. Ask for Acme spend last month.
-2. Confirm no number appears.
-3. choose Acme Cloud Services.
-4. Confirm original period and metric persist.
-5. ask “the office one instead” and confirm vendor replacement.
+### DB-007 — TIMESTAMP session timezone drift
 
-### Script C: context race
+**Failure:** Boundary transaction falls into previous/next day/month.  
+**Severity:** P0  
+**Prevention:** Set MySQL session `+05:30`; timezone-aware Python dates.  
+**Tests:** four boundary rows; verify connection setting.
 
-1. Throttle the network.
-2. send a broad question.
-3. immediately send a correction after the UI permits it or simulate concurrent requests.
-4. confirm context version prevents late overwrite.
-5. inspect conversation history and audit IDs.
+### DB-008 — schema nullable mismatch
 
-### Script D: failure closure
+**Failure:** NULL description/reference/UTR crashes serializer/model.  
+**Severity:** P1  
+**Prevention:** nullable types and explicit display fallback.  
+**Tests:** null-description source row and missing refs.
 
-1. induce DB timeout or validation mismatch.
-2. verify no amount is rendered.
-3. verify trace ID and safe retry.
-4. recover service and retry with same key.
-5. confirm one completed turn.
+### DB-009 — DECIMAL range/precision mismatch
 
-### Script E: accessibility/mobile
+**Failure:** max value overflows or rounds; backend uses max_digits wrong.  
+**Severity:** P0  
+**Prevention:** DecimalField(15,2), Decimal strings, max fixture.  
+**Tests:** max decimal round-trip.
 
-1. operate Ask page with keyboard only.
-2. select a suggested prompt.
-3. open evidence, switch tabs, close, and confirm focus.
-4. zoom to 200% and use 360 px viewport.
-5. verify amounts, warnings, table, and composer remain usable.
+### DB-010 — unrestricted description query at scale
 
-## 9. Bug report template
+**Failure:** `%substring%` scans 20M rows and times out.  
+**Severity:** P1/P2  
+**Prevention:** cap range/result; optional full-text; visibly qualify; monitor plan.  
+**Tests:** timeout and EXPLAIN benchmark.
 
-```markdown
-### [Severity] Concise title
+---
 
-Environment:
-Build/commit:
-Dataset version:
-Model/prompt version:
-Conversation ID:
-Query ID / trace ID:
+## 4. Financial-semantic bugs
 
-Steps:
-1.
-2.
-3.
+### FIN-001 — debits treated as already negative
 
-Expected:
-Actual:
+**Failure:** debit total becomes negative or net double-negates.  
+**Severity:** P0  
+**Prevention:** amount absolute; type supplies direction.  
+**Tests:** August totals and net invariant.
 
-Financial impact:
-Source-lineage impact:
-Reproducibility:
-Attachments/log excerpt:
-Suspected layer: parser / resolver / state / compiler / DB / validation / composer / API / UI / export
-Regression test added:
+### FIN-002 — float arithmetic
+
+**Failure:** pennies/paise drift or JSON/scientific notation.  
+**Severity:** P0  
+**Prevention:** MySQL Decimal → Python Decimal → string → display formatter.  
+**Tests:** aggregate exact equality including max/0.01 combinations.
+
+### FIN-003 — inclusive end date duplicates boundary
+
+**Failure:** `BETWEEN` includes 1 September in August.  
+**Severity:** P0  
+**Prevention:** half-open ranges.  
+**Tests:** BOUNDARY-AUG-END included; BOUNDARY-SEP-START excluded.
+
+### FIN-004 — wall clock used for “last month”
+
+**Failure:** demo changes after calendar month or differs by environment.  
+**Severity:** P0  
+**Prevention:** dataset cutoff anchor.  
+**Tests:** freeze system clock to another date and assert August resolution.
+
+### FIN-005 — balance fan-out
+
+**Failure:** joins account to transactions and sums balance once per transaction.  
+**Severity:** P0  
+**Prevention:** query account directly or distinct IDs first.  
+**Tests:** exact 30-account total; deliberately joined query differs and must not be used.
+
+### FIN-006 — historical balance invented
+
+**Failure:** applies date filter to current `available_balance`.  
+**Severity:** P0  
+**Prevention:** any historical modifier on balance → unsupported.  
+**Tests:** Q025 and multi-turn C004.
+
+### FIN-007 — vendor payout inferred from debit narration
+
+**Failure:** labels all or selected debit transactions as vendor payouts.  
+**Severity:** P0  
+**Prevention:** explicit schema-gap resolver; language rules.  
+**Tests:** Q020 and follow-up “Are those vendor payouts?”
+
+### FIN-008 — reconciliation status fabricated
+
+**Failure:** uses absence/presence of ref/UTR as reconciled flag.  
+**Severity:** P0  
+**Prevention:** unsupported; no heuristic.  
+**Tests:** Q019.
+
+### FIN-009 — description search presented as canonical vendor total
+
+**Failure:** “Selection Mobile spend” without qualification.  
+**Severity:** P0/P1  
+**Prevention:** clarification or explicit literal search with qualified receipt.  
+**Tests:** Q015/Q026; copy/export includes qualification.
+
+### FIN-010 — duplicate rows silently removed
+
+**Failure:** totals differ from source and receipt.  
+**Severity:** P0  
+**Prevention:** include both; warn; dedup only with explicit source rule.  
+**Tests:** duplicate-lookalike pair contributes twice.
+
+### FIN-011 — duplicate reference assumed unique
+
+**Failure:** returns first row only.  
+**Severity:** P1  
+**Prevention:** fetch up to safe cap, status qualified.  
+**Tests:** Q023 returns two.
+
+### FIN-012 — no-data shown as zero
+
+**Failure:** user believes valid zero activity instead of no records.  
+**Severity:** P1  
+**Prevention:** dedicated `no_data` state.  
+**Tests:** Q017/Q027 UI/API.
+
+### FIN-013 — average denominator wrong
+
+**Failure:** average uses all types or paginated rows.  
+**Severity:** P0  
+**Prevention:** aggregate after all predicates; count source rows.  
+**Tests:** Q010 exact.
+
+### FIN-014 — comparison filters differ
+
+**Failure:** current period HDFC but previous period all banks.  
+**Severity:** P0  
+**Prevention:** clone normalized filter set for comparison.  
+**Tests:** C001 third turn.
+
+### FIN-015 — division by zero in percentage change
+
+**Failure:** crash/infinity/misleading 100%.  
+**Severity:** P1  
+**Prevention:** percentage null with reason.  
+**Tests:** empty/zero comparison period.
+
+---
+
+## 5. Natural-language and model bugs
+
+### NLP-001 — model calculates amount
+
+**Failure:** prose/JSON includes a plausible figure without SQL.  
+**Severity:** P0  
+**Prevention:** InterpretationDraft has no amount/SQL fields; reject extras.  
+**Tests:** adversarial prompt asks model to guess.
+
+### NLP-002 — model emits SQL
+
+**Failure:** SQL accepted/executed.  
+**Severity:** P0  
+**Prevention:** no SQL field, extra-forbid, deterministic compiler.  
+**Tests:** malicious text-to-SQL output fixture rejected.
+
+### NLP-003 — unknown bank invented/fuzzy matched
+
+**Failure:** wrong canonical bank.  
+**Severity:** P1  
+**Prevention:** source lookup; clarify.  
+**Tests:** typo close to two banks.
+
+### NLP-004 — “recently” guessed
+
+**Failure:** arbitrary 7/30-day range.  
+**Severity:** P1  
+**Prevention:** ambiguity lexicon + model detection.  
+**Tests:** Q018.
+
+### NLP-005 — correction adds contradiction
+
+**Failure:** “Actually credits” retains debit + credit filters and returns zero.  
+**Severity:** P1  
+**Prevention:** patch semantics replace mutually exclusive metric/type.  
+**Tests:** C003.
+
+### NLP-006 — bare reference falls back to UTR
+
+**Failure:** privacy/performance issue and wrong semantic match.  
+**Severity:** P0/P1  
+**Prevention:** fixed reference mapping; no fallback.  
+**Tests:** missing_reference_with_utr.
+
+### NLP-007 — UTR plaintext equality used against encrypted data
+
+**Failure:** false no-data or full-table decrypt.  
+**Severity:** P1/security  
+**Prevention:** storage-mode gate; unsupported by default.  
+**Tests:** Q022; ensure compiler never produces UTR predicate.
+
+### NLP-008 — source narration prompt injection
+
+**Failure:** description changes answer/tool behavior.  
+**Severity:** P0  
+**Prevention:** raw rows excluded from interpreter; structured untrusted treatment.  
+**Tests:** prompt edge row has no effect.
+
+### NLP-009 — wording model changes number
+
+**Failure:** ComputedFacts correct but prose rounds/changes it.  
+**Severity:** P0  
+**Prevention:** deterministic templates or numeric allow-list check/fallback.  
+**Tests:** simulated model outputs wrong value.
+
+### NLP-010 — unsupported question receives general-knowledge answer
+
+**Failure:** model answers outside data.  
+**Severity:** P0  
+**Prevention:** finance chat restricted; missing concept resolver.  
+**Tests:** forecast/tax/general web questions.
+
+---
+
+## 6. Privacy/security bugs
+
+### SEC-001 — raw account number returned
+
+**Surfaces:** API, DOM, log, cache, export, model prompt, error.  
+**Severity:** P0  
+**Prevention:** centralized sanitizer + denylist serializer.  
+**Tests:** search response bytes/DOM/export/log capture for every fixture account number.
+
+### SEC-002 — account number leaks through description
+
+**Failure:** column masked but narration contains raw value.  
+**Severity:** P0  
+**Prevention:** redact known account numbers in description.  
+**Tests:** ACCOUNT-LEAK-001 and generated narrations.
+
+### SEC-003 — raw UTR returned or logged
+
+**Severity:** P0  
+**Prevention:** masked field only; structured logging filters.  
+**Tests:** raw UTR corpus absent across boundaries.
+
+### SEC-004 — React XSS
+
+**Failure:** `<script>`/HTML executes.  
+**Severity:** P0  
+**Prevention:** text rendering; forbid `dangerouslySetInnerHTML`; CSP.  
+**Tests:** browser E2E prompt row, DOM contains text not element.
+
+### SEC-005 — SQL injection through filter/sort/group
+
+**Severity:** P0  
+**Prevention:** allow-list mappings, bound values, no generic query endpoint.  
+**Tests:** quotes/comments/keywords in description/reference; inspect compiled SQL/params.
+
+### SEC-006 — spreadsheet formula injection
+
+**Failure:** description/reference begins `=`, `+`, `-`, `@` and executes in Excel.  
+**Severity:** P0/P1  
+**Prevention:** encode text cells safely.  
+**Tests:** export adversarial cells.
+
+### SEC-007 — sensitive value in URL
+
+**Severity:** P1  
+**Prevention:** no account-number/UTR filters/routes; IDs only.  
+**Tests:** navigation/history/network logs.
+
+### SEC-008 — model provider receives raw rows
+
+**Severity:** P0  
+**Prevention:** prompt contract and interception test.  
+**Tests:** fake provider records payload; assert no account/UTR/full rows.
+
+### SEC-009 — cached response crosses dataset/user scope
+
+**Severity:** P0  
+**Prevention:** cache key scope + version + plan + privacy policy.  
+**Tests:** two sessions/datasets.
+
+---
+
+## 7. Conversation/concurrency bugs
+
+### STATE-001 — late response overwrites newer context
+
+**Severity:** P1  
+**Prevention:** context CAS and client version check.  
+**Tests:** deliberately delay first request.
+
+### STATE-002 — double submit duplicates query/message
+
+**Severity:** P1/P2  
+**Prevention:** idempotency key and disabled submit.  
+**Tests:** double click/Enter/network retry.
+
+### STATE-003 — idempotency key reused with different payload
+
+**Severity:** P1  
+**Prevention:** request hash; return 409.  
+**Tests:** same key, changed text.
+
+### STATE-004 — pending clarification applied to unrelated question
+
+**Severity:** P1  
+**Prevention:** message/context binding; new intent cancels pending.  
+**Tests:** ask unrelated question while clarification open.
+
+### STATE-005 — pronoun scope uses browser rows only
+
+**Failure:** “those” refers only to current page, not full receipt set.  
+**Severity:** P0/P1  
+**Prevention:** active scope receipt ID.  
+**Tests:** source set > page size.
+
+### STATE-006 — refresh loses authoritative state
+
+**Severity:** P2  
+**Prevention:** fetch server QueryState; receipts by ID.  
+**Tests:** reload after two turns.
+
+---
+
+## 8. API/export bugs
+
+### API-001 — official total computed from paginated records
+
+**Severity:** P0  
+**Prevention:** separate aggregate receipt.  
+**Tests:** page size 10 vs 100 same answer.
+
+### API-002 — record endpoint ignores receipt predicate/version
+
+**Severity:** P0  
+**Prevention:** immutable normalized predicate and dataset version.  
+**Tests:** mutate UI filters; old receipt rows unchanged.
+
+### API-003 — export count/hash mismatch
+
+**Severity:** P0  
+**Prevention:** stream and compare before finalizing file.  
+**Tests:** induce dataset change/job retry.
+
+### API-004 — stale cached answer after dataset update
+
+**Severity:** P0/P1  
+**Prevention:** version/cutoff cache key.  
+**Tests:** change manifest version.
+
+### API-005 — error exposes SQL/source data
+
+**Severity:** P0  
+**Prevention:** domain translation and trace ID.  
+**Tests:** simulated DB error response snapshot.
+
+### API-006 — export decimals become scientific notation
+
+**Severity:** P1  
+**Prevention:** Decimal string/number formatting.  
+**Tests:** max/very small values.
+
+### API-007 — Excel corrupts long IDs
+
+**Severity:** P1/P2  
+**Prevention:** identifiers as text cells.  
+**Tests:** open/read generated XLSX values.
+
+---
+
+## 9. UI bugs
+
+### UI-001 — unsupported/no-data shows ₹0
+
+**Severity:** P1  
+**Tests:** Q019/Q017 visual snapshots.
+
+### UI-002 — qualification hidden in collapsed section
+
+**Severity:** P1  
+**Prevention:** qualification before action row and in export.  
+**Tests:** Q015 desktop/mobile.
+
+### UI-003 — stale result appears below newer question
+
+**Severity:** P1  
+**Tests:** delayed response E2E.
+
+### UI-004 — raw HTML rendering
+
+**Severity:** P0  
+**Tests:** prompt/script narration.
+
+### UI-005 — negative balance styled as app error
+
+**Severity:** P2  
+**Prevention:** financial negative style distinct from system error.  
+**Tests:** account table/accessibility text.
+
+### UI-006 — hidden timezone/end exclusivity
+
+**Severity:** P1/P2  
+**Prevention:** visible human label; exact interval in calculation.  
+**Tests:** receipt detail.
+
+### UI-007 — chart/table disagree
+
+**Severity:** P0/P1  
+**Prevention:** same server breakdown payload.  
+**Tests:** sum breakdown and compare to receipt; no client transformation loss.
+
+### UI-008 — masked value raw in DOM attribute
+
+**Severity:** P0  
+**Tests:** inspect rendered DOM/React props/network fixtures.
+
+### UI-009 — mobile keyboard covers submit
+
+**Severity:** P2  
+**Tests:** mobile viewport E2E.
+
+### UI-010 — keyboard/focus inaccessible dialogs
+
+**Severity:** P2  
+**Tests:** axe + keyboard scenarios.
+
+---
+
+## 10. Performance/reliability bugs
+
+### PERF-001 — deep OFFSET pagination
+
+**Severity:** P1 at scale  
+**Prevention:** keyset cursor.  
+**Tests:** large fixture latency.
+
+### PERF-002 — model called for explorer filters
+
+**Severity:** P2/cost  
+**Prevention:** structured endpoints bypass model.  
+**Tests:** provider call counter.
+
+### PERF-003 — full source rows sent to model
+
+**Severity:** P0 privacy/cost  
+**Prevention:** computed facts only.  
+**Tests:** provider payload capture.
+
+### PERF-004 — query lacks timeout/cancel
+
+**Severity:** P1  
+**Tests:** intentionally slow query/lock.
+
+### PERF-005 — unbounded grouping/source preview
+
+**Severity:** P1  
+**Prevention:** dimension/cardinality/page caps.  
+**Tests:** max limits.
+
+### PERF-006 — connection timezone not initialized after pool recycle
+
+**Severity:** P0  
+**Tests:** reconnect and boundary query.
+
+---
+
+## 11. Test pyramid and required commands
+
+### Fast gate
+
+```bash
+python scripts/generate_dataset.py --check
+python scripts/validate_dataset.py
+python -m unittest discover -s tests -v
+python scripts/validate_repository.py
 ```
 
-Every P0/P1 fix requires a regression test at the lowest effective layer plus an end-to-end test when user-visible.
+### Backend gate after implementation
 
-## 10. Demo-day risk checklist
+- Ruff/format/type check
+- Django system check/migrations check for app DB separation
+- unit tests
+- MySQL integration tests
+- OpenAPI schema test
 
-- pin dataset, prompt, and model versions;
-- prewarm model connection only if allowed and disclose no hidden answer cache;
-- keep deterministic sample questions visible;
-- verify API credits and local fallback;
-- have a deterministic parser/template path for core demo questions;
-- do not depend on live banking/ERP systems;
-- keep local PostgreSQL and frontend builds available;
-- verify system clock cannot affect relative dates;
-- disable developer stack traces;
-- clear old conversations or use a clean demo account;
-- confirm synthetic-data banner;
-- test projector resolution and browser zoom;
-- download one sample CSV/XLSX before presenting;
-- keep architecture diagram and benchmark page available if network degrades;
-- never claim a benchmark, latency, or model result not actually measured.
+### Frontend gate after implementation
+
+- TypeScript strict compile
+- lint
+- unit/component tests
+- accessibility checks
+- Playwright canonical/adversarial flows
+
+### Pre-demo smoke
+
+1. Load a clean fixture.
+2. Run Q001/Q024/Q014/Q015/Q019/Q025.
+3. Open source rows and export.
+4. Search DOM/log/export for raw account/UTR values.
+5. Trigger prompt/XSS row.
+6. Simulate network retry/stale request.
+7. Verify cutoff/timezone.
+8. Record commit/model/dataset versions.
+
+---
+
+## 12. Bug report template
+
+```text
+ID/severity:
+Environment/commit/dataset/model/prompt version:
+User question/request:
+Expected semantic state and receipt:
+Actual state/value:
+Source rows/query plan/template ID:
+Privacy impact:
+Reproduction steps:
+Screenshots/trace ID:
+Root cause:
+Regression test:
+Fix and contract/docs changes:
+```
+
+A screenshot alone is insufficient for a financial bug; include query ID, plan, source count/hash
+and the raw-source recomputation used to prove the expected result.

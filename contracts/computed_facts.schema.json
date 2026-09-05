@@ -1,125 +1,64 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ledgerproof.local/schemas/computed-facts.json",
-  "title": "LedgerProof ComputedFacts",
+  "$id": "https://ledgerproof.local/contracts/computed_facts.schema.json",
+  "title": "ComputedFacts",
+  "description": "Facts returned by deterministic SQL/Python after validation; the language model may explain but may not alter them.",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "query_id",
-    "metric",
-    "result_type",
-    "primary_value",
-    "currency",
-    "breakdown",
-    "source_row_count",
-    "source_row_ids_hash",
-    "validation_checks",
-    "dataset_version"
-  ],
+  "required": ["metric", "primary_value", "unit", "source_row_count", "account_count", "breakdown", "comparison", "extreme_record", "validation_checks"],
   "properties": {
-    "query_id": {
-      "type": "string",
-      "format": "uuid"
-    },
-    "metric": {
-      "type": "string"
-    },
-    "result_type": {
-      "enum": [
-        "currency",
-        "count",
-        "records",
-        "percentage",
-        "freshness",
-        "none"
-      ]
-    },
-    "primary_value": {
-      "type": [
-        "string",
-        "integer",
-        "null"
-      ],
-      "description": "Money and percentages are decimal strings."
-    },
-    "currency": {
-      "type": [
-        "string",
-        "null"
-      ],
-      "pattern": "^[A-Z]{3}$"
-    },
-    "comparison": {
-      "type": [
-        "object",
-        "null"
-      ]
-    },
+    "metric": {"type": "string"},
+    "primary_value": {"type": ["string", "null"], "pattern": "^-?\\d+(?:\\.\\d{2})?$"},
+    "unit": {"enum": ["INR", "records", "accounts"]},
+    "source_row_count": {"type": "integer", "minimum": 0},
+    "account_count": {"type": ["integer", "null"], "minimum": 0},
     "breakdown": {
       "type": "array",
-      "maxItems": 500,
-      "items": {
-        "type": "object"
-      }
-    },
-    "source_row_count": {
-      "type": "integer",
-      "minimum": 0
-    },
-    "source_row_ids_hash": {
-      "type": "string",
-      "pattern": "^[a-f0-9]{64}$"
-    },
-    "source_row_ids_preview": {
-      "type": "array",
-      "maxItems": 500,
-      "items": {
-        "type": "string"
-      }
-    },
-    "validation_checks": {
-      "type": "array",
+      "maxItems": 1000,
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "code",
-          "status",
-          "message",
-          "required"
-        ],
+        "required": ["key", "value", "unit", "record_count"],
         "properties": {
-          "code": {
-            "type": "string"
-          },
-          "status": {
-            "enum": [
-              "pass",
-              "warn",
-              "fail"
-            ]
-          },
-          "message": {
-            "type": "string"
-          },
-          "required": {
-            "type": "boolean"
-          }
+          "key": {"type": "string"},
+          "value": {"type": ["string", "null"]},
+          "unit": {"enum": ["INR", "records", "accounts"]},
+          "record_count": {"type": "integer", "minimum": 0}
         }
       }
     },
-    "warnings": {
+    "comparison": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["current_value", "comparison_value", "absolute_change", "percentage_change", "percentage_change_reason"],
+          "properties": {
+            "current_value": {"type": "string"},
+            "comparison_value": {"type": "string"},
+            "absolute_change": {"type": "string"},
+            "percentage_change": {"type": ["string", "null"]},
+            "percentage_change_reason": {"type": ["string", "null"]}
+          }
+        }
+      ]
+    },
+    "extreme_record": {"type": ["object", "null"]},
+    "validation_checks": {
       "type": "array",
+      "minItems": 1,
       "items": {
-        "type": "object"
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "required", "detail"],
+        "properties": {
+          "id": {"type": "string"},
+          "status": {"enum": ["pass", "warn", "fail"]},
+          "required": {"type": "boolean"},
+          "detail": {"type": "string"}
+        }
       }
-    },
-    "dataset_version": {
-      "type": "string"
-    },
-    "data_as_of": {
-      "type": "string",
-      "format": "date"
     }
   }
 }

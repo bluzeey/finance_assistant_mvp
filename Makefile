@@ -1,26 +1,30 @@
-PYTHON ?= python3
-
-.PHONY: validate generate load-db repo-check backend-test frontend-test bundle
-
-validate:
-	$(PYTHON) scripts/validate_dataset.py
-	$(PYTHON) scripts/validate_repository.py
+.PHONY: generate check-fixture validate test validate-repo mysql-up mysql-down load bundle all
 
 generate:
-	$(PYTHON) scripts/generate_dataset.py
-	$(PYTHON) scripts/validate_dataset.py
+	python scripts/generate_dataset.py
 
-load-db:
-	$(PYTHON) scripts/load_postgres.py --truncate
+check-fixture:
+	python scripts/generate_dataset.py --check
 
-repo-check:
-	$(PYTHON) scripts/validate_repository.py
+validate:
+	python scripts/validate_dataset.py
 
-backend-test:
-	cd backend && pytest
+test:
+	python -m unittest discover -s tests -v
 
-frontend-test:
-	cd frontend && npm run typecheck && npm test
+validate-repo:
+	python scripts/validate_repository.py
+
+mysql-up:
+	docker compose up -d mysql redis
+
+mysql-down:
+	docker compose down
+
+load:
+	python scripts/load_mysql.py --truncate
 
 bundle:
-	$(PYTHON) scripts/build_bundle.py
+	python scripts/build_bundle.py
+
+all: check-fixture validate test validate-repo

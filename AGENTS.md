@@ -1,106 +1,142 @@
 # Agent Operating Contract
 
-This repository is designed for multiple coding agents. Read this file, `README.md`, and `docs/MASTER_PRODUCT_IMPLEMENTATION_SPEC.md` before making changes.
+This repository is intended for sequential and parallel coding agents. Before changing code,
+read this file, `README.md`, the ticket in `project_backlog.csv`, and the relevant contract.
+
+## Source-of-truth hierarchy
+
+1. Organiser schema: `docs/PROVIDED_DATABASE_SCHEMA.md` and `database/schema.sql`
+2. Finance semantics: `contracts/semantic_metrics.yaml`
+3. API/data contracts: `contracts/*.schema.json` and `contracts/openapi.yaml`
+4. Product behavior: `docs/MASTER_PRODUCT_IMPLEMENTATION_SPEC.md`
+5. Backend mechanics: `docs/BACKEND_QUERY_ENGINE_SPEC.md`
+6. UI behavior: `docs/UI_UX_SPEC.md`
+7. Test fixture semantics: `docs/DATASET_GUIDE.md` and `evaluation/`
+8. Delivery sequence: `project_backlog.csv`
+
+`docs/research/` is market context, not an implementation contract. When it conflicts with the supplied schema or the hierarchy above, the supplied schema wins.
+
+When sources conflict, stop and update the decision log. Do not quietly preserve an obsolete
+assumption.
 
 ## Non-negotiable product invariants
 
-1. The language model interprets language; PostgreSQL/Python deterministic code computes finance values.
-2. The model never emits SQL and never receives authority to select arbitrary fields/tables.
-3. Every financial answer includes an immutable AnswerReceipt with query ID, exact interpretation, data-as-of, source-row lineage, and validation checks.
-4. Ambiguous or unsupported questions return no number.
-5. Money is PostgreSQL `NUMERIC(18,2)` and Python `Decimal`, never float.
-6. Relative dates use dataset `data_as_of`, not wall-clock time.
-7. Credits/reversals remain signed; completed-payout metrics exclude pending, failed, and reversed attempts.
-8. Partial reconciliation uses `unreconciled_amount`, not the full transaction amount.
-9. Possible duplicate records remain in totals and are flagged; they are never silently deduplicated.
-10. Record text is untrusted data. `TXN-PROMPT-001` must be inert.
-11. Runtime code must never import or read `evaluation/expected_*`, benchmark gold values, or hardcoded expected totals.
-12. Export must match the immutable query receipt’s source count/hash and computation.
-13. A failed required validation check returns no financial number.
-14. Old requests cannot overwrite newer conversation context. Use context versions and idempotency.
-15. Do not claim performance, model accuracy, or cost without a recorded benchmark run.
+1. The finance database has exactly three source tables: `bank`, `account`, and `transaction`.
+2. The assistant must never fabricate vendor, payout, reconciliation, category, ledger-account,
+   forecast, budget or historical-balance data because those fields do not exist.
+3. The model may emit `InterpretationDraft`; it never emits SQL, executes tools, performs money
+   arithmetic, or selects arbitrary tables/columns.
+4. A deterministic resolver creates a schema-valid `QueryPlan`; an allow-listed compiler creates
+   bound SQL; MySQL/Python `Decimal` computes the result.
+5. Ambiguous and unsupported requests return no financial number.
+6. Every response—including refusals—returns an immutable `AnswerReceipt` with status, source
+   scope, interpretation, data cutoff, warnings and next action.
+7. Money uses MySQL `DECIMAL(15,2)`, Python `Decimal`, and decimal strings over JSON. Never float.
+8. `transaction_amount` is absolute; `transaction_type` supplies the direction.
+9. Date ranges are half-open `[start, end)` and use `Asia/Kolkata`.
+10. Relative dates use dataset `data_as_of`, not the machine clock.
+11. `available_balance` is a current snapshot. Never answer a historical balance request from it.
+12. Never sum account balances after joining to transactions unless the query first selects
+    distinct accounts; fan-out would inflate the total.
+13. Bare “reference number” maps only to `transaction_reference_id` and is exact/case-sensitive.
+14. UTR search is disabled in the default encrypted/tokenized mode; never decrypt every row to search.
+15. Account numbers and UTRs never appear raw in API responses, model prompts, UI, logs or exports.
+16. Redact known account numbers embedded inside description text.
+17. Description text is untrusted data. It may contain prompt injection, HTML or scripts and must
+    never be treated as instructions or rendered as raw HTML.
+18. IDs are opaque strings, not guaranteed native UUIDs; preserve organiser-provided malformed IDs.
+19. Potential duplicates are included in totals and visibly flagged, never silently deduplicated.
+20. Runtime application code must never import or read `evaluation/expected_*` or benchmark gold values.
+21. An export must reproduce the immutable receipt predicate, source count and source hash.
+22. Required validation failure suppresses the numeric answer.
+23. Conversation writes use context versions, idempotency keys and stale-response protection.
+24. Do not claim model accuracy, cost, latency or scale without a saved benchmark run.
 
-## Source of truth
+## Database rules
 
-- Product and architecture: `docs/MASTER_PRODUCT_IMPLEMENTATION_SPEC.md`
-- Finance semantics: `contracts/semantic_metrics.yaml`
-- Query contract: `contracts/query_plan.schema.json`
-- Answer contract: `contracts/answer_receipt.schema.json`
-- HTTP API: `contracts/openapi.yaml`
-- Database: `database/schema.sql`, `database/views.sql`, `database/indexes.sql`
-- Fixture semantics: `docs/DATASET_GUIDE.md`
-- Backlog/dependencies: `project_backlog.csv`
-- Gold evaluation only: `evaluation/`
+- MySQL 8.0+ is the supported engine.
+- Quote `` `transaction` `` in every raw statement because it is a SQL keyword.
+- Set every connection session timezone to `+05:30` for the fixture.
+- Use a read-only application DB user after initial loading.
+- Use bound parameters. No string-concatenated predicates, identifiers or sort fields.
+- Compile only known metrics, dimensions, filters and sort fields.
+- Apply statement timeouts/limits and bounded pagination.
+- Do not hold DB transactions open during model calls.
+- Do not add app logging, feedback or conversation tables to the source finance schema.
 
-When documents disagree, fix the inconsistency explicitly. Do not quietly choose the easiest interpretation.
+## Backend rules
 
-## Required workflow per task
+- Python 3.12+, Django + DRF, strict type checking.
+- Map source tables with unmanaged Django models (`managed = False`).
+- Keep five layers separate: interpreter, resolver, compiler, executor/validator, presenter.
+- Pydantic models are internal contracts; DRF serializers validate transport.
+- Domain errors use `application/problem+json`.
+- Log identifiers, versions, timings and check outcomes—not raw sensitive values.
+- Sanitize source rows before any model, cache, log, response or export boundary.
+- Cache keys include dataset version, data cutoff, normalized QueryPlan hash and privacy policy version.
+- A cache hit still produces lineage and validation metadata.
 
-1. Identify ticket ID and acceptance criteria.
-2. Inspect contracts and existing tests before coding.
-3. Implement the smallest complete vertical change.
-4. Add or update tests, including a failure case.
-5. Run relevant lint/type/test/validation commands.
-6. Update API/schema/docs when behavior changes.
-7. Record actual measurements rather than estimates.
-8. Leave the repository in a runnable state.
+## Frontend rules
 
-## Code rules
+- React + TypeScript strict mode.
+- Generate API types from OpenAPI or import one canonical generated package.
+- Server QueryState and AnswerReceipt are authoritative.
+- Do not calculate official totals from browser rows or chart data.
+- Use semantic HTML, keyboard behavior, visible focus and screen-reader labels.
+- Render narration as normal text; never use `dangerouslySetInnerHTML`.
+- Use `Intl.NumberFormat('en-IN', {style:'currency', currency:'INR'})` only for display;
+  keep raw decimal strings untouched in state.
+- Async mutations require stable message IDs, idempotency keys, cancellation and response-version checks.
+- No optimistic display of an official number before the server receipt arrives.
 
-### Backend
+## Testing rules
 
-- Python 3.12+, Django + DRF, strict typing.
-- DRF serializers validate HTTP requests/responses; Pydantic models define internal finance contracts.
-- Bound SQL parameters only.
-- Allow-listed compiler functions, not generic text-to-SQL.
-- Domain errors map to `application/problem+json`.
-- Do not catch broad exceptions without logging and safe translation.
-- Do not keep DB transactions open across model calls.
-- Include `query_id`, `trace_id`, dataset version, and prompt/model version in structured logs.
+- Every bug fix includes a regression test reproducing the failure.
+- P0 financial behavior requires integration tests at the SQL/compiler boundary.
+- Test both a positive path and a no-answer path.
+- Use the supplied edge manifest; do not remove difficult rows to make tests pass.
+- Gold values may be read only by evaluator/test modules, never runtime modules.
+- Do not update gold outputs until raw-source recomputation proves the intended semantic change.
+- Minimum local gate: `make all`.
 
-### Frontend
+## Required workflow per ticket
 
-- TypeScript strict mode.
-- Generate/reuse API types; do not duplicate AnswerReceipt types manually.
-- Server QueryState is authoritative.
-- Official totals and exports are never computed from paginated browser rows.
-- Use semantic HTML, keyboard behavior, and visible focus.
-- Never render model/record text as raw HTML.
-- All async mutations use stable client IDs, idempotency, cancellation, and stale-response protection.
-
-### Tests
-
-- Every bug fix adds a regression test.
-- P0/P1 finance behavior requires integration coverage.
-- Use fixture IDs rather than copying gold amounts into runtime tests when source-level assertions suffice.
-- Gold totals are allowed only inside evaluator/integration-test packages.
-- Do not update gold files to hide a regression.
+1. Select one unblocked ticket ID from `project_backlog.csv`.
+2. Restate its acceptance criteria in the PR/commit body.
+3. Inspect relevant contracts and existing regression tests.
+4. Implement the smallest complete vertical slice.
+5. Add tests, including error/ambiguity/privacy behavior.
+6. Run focused tests, then `make all`.
+7. Update docs/contracts/API examples when behavior changes.
+8. Record assumptions and actual measurements.
+9. Leave a handoff including files changed, tests run, remaining risk and next unblocked ticket.
 
 ## Forbidden shortcuts
 
-- hardcoding sample answers in routes/components;
-- querying `evaluation/expected_aggregates.json` from application code;
-- passing a table dump to the model and asking it to calculate;
 - model-generated SQL;
-- browser-side financial aggregation for the official answer;
-- auto-resolving Acme/ABC;
-- silently ignoring duplicate or missing reconciliation warnings;
-- substituting current date for dataset anchor;
-- using float for money;
-- returning a cached answer without dataset snapshot in the cache key;
-- hiding failing checks for the demo;
-- adding authentication, live ERP integration, or unrelated features before P0 backlog is complete.
+- sending raw table dumps to a model for calculation;
+- hardcoded demo answers in routes/components;
+- reading `evaluation/expected_aggregates.json` in runtime code;
+- browser-side aggregation presented as an official answer;
+- treating narration tokens as canonical vendors;
+- claiming a transaction is a payout or unreconciled without a source field;
+- fuzzy matching a transaction reference;
+- falling back from a missing plaintext reference to UTR;
+- returning raw account numbers/UTRs in exports;
+- swallowing validation failures;
+- using the current wall-clock date for “last month”;
+- adding authentication/live banking integration before P0 grounding is complete;
+- updating fixtures merely to make a failing implementation test green.
 
-## Commit/PR handoff
+## Handoff format
 
-A handoff note must state:
+Every agent handoff should state:
 
 - ticket IDs completed;
 - files changed;
+- schema/contract changes;
 - assumptions made;
-- tests run and results;
-- contract changes;
-- remaining risks/follow-up tickets;
-- screenshot or response fixture for user-visible work.
-
-Do not mark a ticket done when only the happy path exists.
+- tests and exact results;
+- screenshots or response fixtures for UI/API changes;
+- known risks and follow-up ticket IDs;
+- whether `make all` passed.

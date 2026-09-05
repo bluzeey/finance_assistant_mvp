@@ -1,34 +1,31 @@
--- Index strategy for the scored domain and a future 20M-row dataset.
--- Build concurrently in production migrations; ordinary CREATE is simpler for hackathon setup.
-CREATE INDEX IF NOT EXISTS idx_transactions_company_posted_date
-  ON transactions (company_id, posting_date DESC, transaction_id)
-  WHERE status = 'posted';
-CREATE INDEX IF NOT EXISTS idx_transactions_company_vendor_posted_date
-  ON transactions (company_id, vendor_id, posting_date DESC, transaction_id)
-  WHERE status = 'posted';
-CREATE INDEX IF NOT EXISTS idx_transactions_company_account_posted_date
-  ON transactions (company_id, account_code, posting_date DESC, transaction_id)
-  WHERE status = 'posted';
-CREATE INDEX IF NOT EXISTS idx_transactions_reversal_link
-  ON transactions (reverses_transaction_id)
-  WHERE reverses_transaction_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_payouts_company_completed_date
-  ON vendor_payouts (company_id, payout_date DESC, payout_id)
-  INCLUDE (vendor_id, gross_amount, fee_amount, net_cash_outflow)
-  WHERE payout_status = 'completed';
-CREATE INDEX IF NOT EXISTS idx_payouts_company_vendor_completed_date
-  ON vendor_payouts (company_id, vendor_id, payout_date DESC, payout_id)
-  INCLUDE (gross_amount, net_cash_outflow)
-  WHERE payout_status = 'completed';
-CREATE INDEX IF NOT EXISTS idx_payouts_duplicate_signals
-  ON vendor_payouts (company_id, vendor_id, payout_date, gross_amount, bank_reference, invoice_reference);
-CREATE INDEX IF NOT EXISTS idx_reconciliation_open
-  ON reconciliation_status (company_id, status, transaction_id)
-  INCLUDE (unreconciled_amount, reason_code, last_reviewed_at)
-  WHERE status IN ('unreconciled','partially_reconciled','disputed');
-CREATE INDEX IF NOT EXISTS idx_alias_normalized
-  ON vendor_aliases (normalized_alias, vendor_id);
-CREATE INDEX IF NOT EXISTS idx_conversation_turns_order
-  ON conversation_turns (conversation_id, turn_number);
-CREATE INDEX IF NOT EXISTS idx_query_audit_created
-  ON query_audit_log (company_id, created_at DESC);
+-- Query-supporting indexes for the allow-listed finance assistant query catalogue.
+-- Run after database/schema.sql. Do not create indexes by concatenating model output.
+
+CREATE INDEX `idx_account_bank_code`
+    ON `account` (`bank_code`);
+
+CREATE INDEX `idx_account_entity_id`
+    ON `account` (`entity_id`);
+
+CREATE INDEX `idx_account_program_id`
+    ON `account` (`program_id`);
+
+CREATE INDEX `idx_account_bank_program`
+    ON `account` (`bank_code`, `program_id`, `account_id`);
+
+CREATE INDEX `idx_transaction_account_date`
+    ON `transaction` (`account_id`, `transaction_date`, `transaction_id`);
+
+CREATE INDEX `idx_transaction_date_type`
+    ON `transaction` (`transaction_date`, `transaction_type`, `account_id`);
+
+CREATE INDEX `idx_transaction_type_date_amount`
+    ON `transaction` (`transaction_type`, `transaction_date`, `transaction_amount`);
+
+CREATE INDEX `idx_transaction_reference_id`
+    ON `transaction` (`transaction_reference_id`);
+
+-- Optional for literal/natural-language narration search. FULLTEXT behavior is not
+-- equivalent to an authoritative vendor dimension and all such answers remain qualified.
+CREATE FULLTEXT INDEX `idx_transaction_description_fulltext`
+    ON `transaction` (`description`);

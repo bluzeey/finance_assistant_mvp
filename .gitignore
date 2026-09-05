@@ -1,28 +1,44 @@
 # Python
 __pycache__/
 *.py[cod]
-*.egg-info/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-.coverage
-htmlcov/
 .venv/
 venv/
+.coverage
+htmlcov/
 
-# Django/local data
+# Django
 *.sqlite3
-.env
+staticfiles/
+media/
 
 # Node
 node_modules/
 dist/
 coverage/
-*.tsbuildinfo
 playwright-report/
 test-results/
+.vite/
 
-# macOS/editor
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# IDE / OS
 .DS_Store
 .idea/
 .vscode/
+
+# Generated runtime artifacts
+evaluation/runs/
+exports/
+artifacts/generated/
+*.log
+
+# Local database files
+.mysql/

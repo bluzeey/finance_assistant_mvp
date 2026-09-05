@@ -1,269 +1,259 @@
-# Dataset Guide and Finance Semantics
+# Dataset Guide
 
-## 1. Purpose
+**Dataset:** Tiby Finance Assistant Synthetic Fixture  
+**Version:** `tiby-finance-fixture-v2.0.0`  
+**Generator seed:** `20260903`  
+**Currency:** INR  
+**Timezone:** Asia/Kolkata  
+**Data cutoff:** `2026-09-03T23:59:59.999999+05:30`
 
-This repository contains a deterministic, synthetic, single-company finance dataset for developing and evaluating the TBX finance assistant. It is deliberately richer than a clean demo spreadsheet: it includes normal records, incomplete coverage, ambiguous vendor names, credits, reversals, partial reconciliations, failed and pending payouts, duplicate candidates, and hostile text inside a transaction memo.
+The fixture mirrors the organiser-provided three-table source schema and is large enough to test
+aggregation, filtering, multi-turn questions, privacy and edge behavior without pretending to be
+production data.
 
-The dataset is designed to test whether the product can be **accurate, grounded, explainable, and appropriately cautious**. It is not intended to model every accounting workflow or to teach accounting policy.
+---
 
-All organisations, people, references, tax identifiers, invoices, bank references, and financial values are fictitious. Familiar product names are used only to make entity-resolution tests understandable.
+## 1. Files and database mapping
 
-## 2. Dataset identity
+| File | Loaded table | Rows | Notes |
+|---|---|---:|---|
+| `data/csv/bank.csv` | `bank` | 10 | Exact organiser bank list |
+| `data/csv/account.csv` | `account` | 30 | Includes all 10 organiser sample accounts |
+| `data/csv/transaction.csv` | `transaction` | 2,426 | Includes all 10 organiser sample transactions |
+| `data/csv/data_dictionary.csv` | none | 16 | Documentation for each source column |
+| `data/company_metadata.json` | none | n/a | Currency/timezone/cutoff/privacy mode |
+| `data/dataset_manifest.json` | none | n/a | Counts, seed and SHA-256 hashes |
 
-| Property | Value |
-|---|---|
-| Company | Northstar Labs India Private Limited |
-| Company ID | `CMP-NL-001` |
-| Currency | INR only |
-| Timezone | Asia/Kolkata |
-| Fiscal-year start | April |
-| Data as of | 3 September 2026 |
-| Generator seed | `20260904` |
-| Dataset version | `2026.09.04-hackathon-v1` |
-| Runtime scope | One fictitious company, one currency, read-only |
+Only the first three are source finance tables. The dictionary/metadata/manifest must not be
+mistaken for source facts by the assistant.
 
-Relative dates must be anchored to `companies.data_as_of` or `data/company_metadata.json:data_as_of`, **not the server clock**. For example:
+---
 
-- “last month” → `[2026-08-01, 2026-09-01)`
-- “this month” → `[2026-09-01, 2026-09-04)`
-- “last 30 days” → `[2026-08-05, 2026-09-04)`
-
-All internal date ranges are half-open: start is inclusive and `end_exclusive` is excluded. The UI may display the corresponding inclusive human date, such as “1–31 August 2026.”
-
-## 3. Files
-
-### `data/csv/chart_of_accounts.csv`
-
-The chart of accounts. It includes balance-sheet, revenue, cost-of-goods-sold, and operating-expense accounts. The supported spend metric uses only accounts whose `account_type` is `Expense` or `COGS`.
-
-### `data/csv/vendors.csv`
-
-Canonical vendor master. Use `vendor_id` for all filtering and joins. `display_name` and `legal_name` are labels, not safe identifiers.
-
-### `data/csv/vendor_aliases.csv`
-
-Vendor-name resolution table. It contains exact, legal, and common aliases. `normalized_alias` is lowercase and punctuation-normalised. Some aliases intentionally map to more than one vendor:
-
-- `acme` → `V0001` Acme Cloud Services and `V0002` Acme Office Supplies
-- `abc` → `V0044` ABC Consulting and `V0045` ABC Telecom
-
-The assistant must ask for clarification when a user supplies one of these ambiguous aliases. A fuzzy match may retrieve candidates, but it must not silently select a vendor when more than one plausible match exists.
-
-### `data/csv/transactions.csv`
-
-Posted, voided, and draft ledger-like transactions. `signed_amount` is positive for expense and negative for credits or reversals. The default vendor-spend metric:
-
-```text
-SUM(transactions.signed_amount)
-WHERE transactions.status = 'posted'
-AND chart_of_accounts.account_type IN ('Expense', 'COGS')
-DATE FIELD = transactions.posting_date
-```
-
-Do not use floating-point arithmetic. Parse money as `Decimal` in Python and store it as `NUMERIC(18,2)` in PostgreSQL.
-
-### `data/csv/vendor_payouts.csv`
-
-Payout attempts linked to invoice transactions. A payout can be completed, pending, failed, or reversed. The default payout metric is:
-
-```text
-SUM(vendor_payouts.gross_amount)
-WHERE vendor_payouts.payout_status = 'completed'
-DATE FIELD = vendor_payouts.payout_date
-```
-
-`fee_amount` is excluded from gross vendor payouts. `net_cash_outflow` includes fee only for completed rows. Pending, failed, and reversed attempts contribute zero to net cash outflow.
-
-### `data/csv/reconciliation_status.csv`
-
-Current reconciliation state for most posted transactions. There is intentionally one posted transaction without a reconciliation row. For open-item metrics, include statuses:
-
-- `unreconciled`
-- `partially_reconciled`
-- `disputed`
-
-For a partially reconciled item, use `unreconciled_amount`; never count the full transaction amount as open.
-
-### `data/csv/data_dictionary.csv`
-
-Field-level types, nullability, keys, allowed values, examples, and finance semantics. The schema resolver should read a curated semantic configuration in production; this CSV is for people, tests, and the glossary page.
-
-### `data/company_metadata.json`
-
-Company identity, dataset anchor, default metric semantics, and synthetic-data notice.
-
-### `data/dataset_manifest.json`
-
-Dataset version, file hashes, sizes, and row counts. Use this to show data lineage and detect accidental fixture changes.
-
-### Evaluation files
-
-- `evaluation/benchmark_questions.csv` — single-turn gold cases
-- `evaluation/benchmark_cases.jsonl` — the same cases in machine-friendly JSONL
-- `evaluation/benchmark_conversations.jsonl` — multi-turn, correction, clarification, and reset cases
-- `evaluation/expected_aggregates.json` — independently computed gold aggregates
-- `evaluation/edge_case_manifest.csv` — planted risk conditions and required behavior
-- `evaluation/model_benchmark_results_template.csv` — scorecard for model and prompt experiments
-
-**Separation rule:** application runtime modules must never import or query gold files. Gold data is available only to offline tests/evaluation. Add a test that searches runtime imports and fails if `evaluation/expected_*` is referenced.
-
-## 4. Canonical metrics
-
-### 4.1 Completed vendor payout amount
-
-Use when the user says “vendor payouts,” “paid vendors,” “supplier payouts,” or an equivalent phrase that clearly refers to payment execution.
-
-- Source: `vendor_payouts`
-- Value: `SUM(gross_amount)`
-- Mandatory status: `completed`
-- Date: `payout_date`
-- Excludes: pending, failed, reversed, and payment fees
-
-### 4.2 Net cash outflow
-
-Use only when the user asks for cash paid/outflow including payment fees.
-
-- Source: `vendor_payouts`
-- Value: `SUM(net_cash_outflow)`
-- Mandatory status: `completed`
-- Date: `payout_date`
-
-### 4.3 Posted vendor spend
-
-Use for “spend” or “expenses” when the user is asking about recorded financial activity rather than payment execution.
-
-- Source: `transactions` joined to `chart_of_accounts`
-- Value: `SUM(signed_amount)`
-- Mandatory transaction status: `posted`
-- Mandatory account types: `Expense`, `COGS`
-- Date: `posting_date`
-- Credits and reversals remain included as negative values
-
-The product must disclose this distinction when a question could reasonably mean either ledger spend or payouts.
-
-### 4.4 Open reconciliation amount
-
-- Source: `reconciliation_status` joined to `transactions`
-- Value: `SUM(unreconciled_amount)`
-- Open statuses: unreconciled, partially reconciled, disputed
-- Date for age/period filters: transaction `posting_date` unless explicitly requested otherwise
-- Partially reconciled items contribute only their remaining open amount
-
-### 4.5 Open reconciliation count
-
-Count distinct `transaction_id` values in an open reconciliation status. Do not count multiple source rows if the production schema later permits reconciliation history.
-
-### 4.6 Possible duplicate payout candidates
-
-This is a quality warning, not an adjusted financial metric. The reference rule pairs completed payouts that share:
-
-- company
-- vendor
-- payout date
-- gross amount
-- and either bank reference or invoice reference
-
-Both records remain in totals unless a human or source system marks one invalid. The assistant must say “possible duplicate,” not “duplicate” as a certainty.
-
-### 4.7 Payout anomaly
-
-The sample rule flags a completed payout when:
-
-- gross amount is at least INR 500,000, and
-- amount is at least 3 times that vendor’s historical median completed payout
-
-This is descriptive only. The product must never label a transaction fraudulent solely from this rule.
-
-## 5. Date and period semantics
-
-The parser returns exact dates and the date field used. It may not leave “last month” or “Q2” as raw text for the database layer.
-
-| User phrase | Required behavior |
-|---|---|
-| last month | Previous complete calendar month relative to `data_as_of` |
-| month before | Previous period of matching granularity and duration, based on explicit QueryState |
-| this month / MTD | First day of anchor month through `data_as_of` |
-| last 30 days | Thirty dates including `data_as_of` |
-| recent | Ask: last 7 days, last 30 days, or month-to-date |
-| Q2 | Ask calendar or fiscal and ask year if missing |
-| calendar Q2 2026 | `[2026-04-01, 2026-07-01)` |
-| Q2 FY2027 | `[2026-07-01, 2026-10-01)` because fiscal year starts in April |
-| older than 30 days | Strictly earlier than `data_as_of - 30 days`; for this fixture, `< 2026-08-04` |
-| August 24 through August 30 | `[2026-08-24, 2026-08-31)` |
-
-Never infer a future range beyond the dataset date without warning. A question can specify a period for which no records exist; that should produce a verified zero only when the relevant dataset is complete for that period. Otherwise return a qualified result or not-answerable state.
-
-## 6. Planted edge cases
-
-| ID | Records | What it tests |
-|---|---|---|
-| E001 | `V0001`, `V0002` | Ambiguous “Acme” vendor alias |
-| E002 | `V0044`, `V0045` | Ambiguous “ABC” vendor alias |
-| E003 | `TXN-ANOM-001`, `PAY-ANOM-001` | Explainable outlier callout |
-| E004 | `PAY-DUP-001`, `PAY-DUP-002` | Duplicate candidate without silent dedupe |
-| E005 | `TXN-REV-ORIG`, `TXN-REV-001`, `PAY-REV-ORIG` | Correct credit/reversal and payout-status treatment |
-| E006 | `TXN-PROMPT-001` | Prompt injection inside data |
-| E007 | `TXN-MISSING-REC-001` | Missing reconciliation coverage |
-| E008 | `TXN-PART-001` | Partial reconciliation uses only open component |
-| E009 | `PAY-FAIL-001` | Failed payout excluded from paid amount |
-| E010 | `PAY-PEND-001` | Pending payout excluded from paid amount and cash outflow |
-| E011 | travel window 24–30 Aug | Verified zero versus missing data |
-| E012 | `TXN-VOID-001` | Voided zero-value transaction excluded but explorable |
-
-The detailed expected behavior is in `evaluation/edge_case_manifest.csv`.
-
-## 7. Gold values
-
-Do not manually copy gold values into production code. Read them only in tests. The generator computes values from the fixtures, and the validator independently recomputes load-bearing totals. Core values in the generated version include:
-
-- August 2026 completed vendor payout gross: INR 10,000,874.04
-- July 2026 completed vendor payout gross: INR 6,930,339.40
-- July-to-August change: INR 3,070,534.64, or 44.31%
-- August 2026 posted vendor spend, net of credits/reversals: INR 10,147,850.99
-- August 2026 completed AWS payouts: INR 1,655,853.90
-- Open reconciliation count: 133
-- Open reconciliation amount: INR 20,509,837.53
-- `TXN-PART-001` remaining open amount: INR 200,000.00
-- Unreconciled travel items from 24–30 August: zero
-
-The authoritative file is `evaluation/expected_aggregates.json`; values above will change if the generator changes.
-
-## 8. Regeneration and validation
-
-From the repository root:
+## 2. Generation
 
 ```bash
 python scripts/generate_dataset.py
+```
+
+The generator:
+
+1. resets a local seeded PRNG;
+2. preserves the exact organiser seed rows;
+3. creates deterministic UUID5-style IDs for extra records;
+4. creates additional accounts across the ten banks and programs 4, 21 and 46;
+5. creates debit/credit narrations and decimal amounts from December 2025 through the cutoff;
+6. adds targeted edge records;
+7. writes CSVs in stable order;
+8. computes gold aggregates from in-memory source records using `scripts/reference_evaluator.py`;
+9. writes benchmark cases/conversations/edge manifest;
+10. computes file hashes and row counts.
+
+Check byte stability without modifying committed files:
+
+```bash
+python scripts/generate_dataset.py --check
+```
+
+Do not manually edit generated CSV/gold files. Change the generator and regenerate.
+
+---
+
+## 3. Source semantics
+
+### `bank`
+
+Fixed canonical codes/names. The assistant resolves user bank names to a code present here. It must
+not hallucinate an institution.
+
+### `account`
+
+- `account_id` and `entity_id` are opaque strings up to 36 characters.
+- `account_number` is synthetic but treated as sensitive.
+- `program_id` is integer; `04` and `4` are the same value.
+- `available_balance` is a current snapshot and can be negative.
+- `bank_code` references `bank`.
+
+### `transaction`
+
+- `transaction_id` is an opaque source string.
+- `transaction_date` has microsecond precision.
+- `transaction_type` is `credit` or `debit`.
+- `description` may be NULL and may contain sensitive/hostile text.
+- `transaction_amount` is absolute `DECIMAL(15,2)`.
+- `transaction_reference_id` is plaintext/searchable but nullable/non-unique.
+- `utr_number` is nullable, sensitive and generated as encrypted-looking/tokenized content.
+
+---
+
+## 4. Preserved organiser patterns
+
+The fixture keeps:
+
+- all ten bank IFSC-prefix codes/names;
+- the exact ten sample account IDs/entity IDs/numbers/programs/balances;
+- the exact ten sample transaction IDs, timestamps, descriptions, amounts, references and UTRs;
+- narration patterns such as NEFT, IMPS, UPI, FT, Selection-branded businesses and Bajaj-like
+  disbursement/collection formats;
+- negative and large available balances;
+- NULL reference/UTR values.
+
+One provided transaction ID, `0178b656-4a7d-98e8-9540f6e24caf`, is 36 characters but is not a
+strict 8-4-4-4-12 UUID. The fixture preserves it to prevent accidental UUID coercion.
+
+---
+
+## 5. Relative dates and gold periods
+
+All relative dates use the dataset cutoff, not today's date.
+
+| Phrase | Start inclusive | End exclusive |
+|---|---|---|
+| Last month | 2026-08-01 00:00:00 | 2026-09-01 00:00:00 |
+| July 2026 | 2026-07-01 00:00:00 | 2026-08-01 00:00:00 |
+| This month to date | 2026-09-01 00:00:00 | 2026-09-04 00:00:00 |
+| Year to date | 2026-01-01 00:00:00 | 2026-09-04 00:00:00 |
+
+Fixture gold highlights:
+
+```text
+August debit total:        121758278.46 INR / 205 debit rows
+August credit total:       302425859.82 INR / 80 credit rows
+August net cash flow:      180667581.36 INR / 285 total rows
+July debit total:           69995241.84 INR / 182 debit rows
+Current available balance: 823392832.43 INR / 30 accounts
+HDFC current balance:        8153593.44 INR / 5 accounts
+```
+
+These values are generated and stored for evaluation only. The application must query source rows.
+
+---
+
+## 6. Edge records
+
+See `evaluation/edge_case_manifest.csv` for IDs.
+
+### Date boundaries
+
+- 31 July 23:59:59.999999
+- 1 August 00:00:00.000000
+- 31 August 23:59:59.999999
+- 1 September 00:00:00.000000
+
+These prove half-open intervals and timezone setup.
+
+### Duplicate risk
+
+Two rows share account/date/type/description/amount but have different IDs/references. They remain in
+totals and trigger a possible-duplicate warning.
+
+### Duplicate reference
+
+Two different rows share `DUP-REF-2026-001`; exact lookup must return both and qualify the answer.
+
+### Null/zero/max
+
+- one null description;
+- one zero amount;
+- one exact maximum `DECIMAL(15,2)` amount (`9999999999999.99`), placed outside the canonical
+  August demo so it does not dominate the primary example.
+
+### Privacy/security
+
+- narration containing a known account number;
+- encrypted UTR with no plaintext reference;
+- prompt injection plus `<script>` text;
+- Unicode narration;
+- case-sensitive reference.
+
+Generated regular narrations periodically embed known account numbers, producing multiple redaction
+test rows rather than a single special case.
+
+---
+
+## 7. Privacy expectations
+
+Even synthetic sensitive fields are handled as production-like:
+
+| Field/surface | Rule |
+|---|---|
+| `account_number` | Never return raw; mask all but last four |
+| `utr_number` | Never return raw; mask suffix; do not model/log/export raw |
+| account number inside `description` | Replace known exact value with masked form |
+| description HTML/script | Return as escaped text only |
+| transaction reference | May display/copy when explicitly relevant |
+| amount/balance | Confidential but usable in computed answer |
+
+A naive generic regex that masks every long number may accidentally destroy legitimate numeric
+transaction references. The reference implementation redacts exact known account numbers first.
+
+---
+
+## 8. Validation
+
+```bash
 python scripts/validate_dataset.py
 ```
 
-The generator is deterministic. Re-running it with the same source and seed should produce identical CSV content. If a fixture changes intentionally:
+Checks:
 
-1. bump `dataset_version`;
-2. regenerate files;
-3. run validation;
-4. inspect gold changes;
-5. update affected benchmark notes and demo screenshots;
-6. never change expected values merely to make a broken query pass.
+- exact source CSV set;
+- row counts;
+- PK uniqueness and FKs;
+- canonical bank values;
+- column length/domain/nullability assumptions;
+- decimal precision/range/non-negative transaction amounts;
+- timestamps and cutoff;
+- known quality/edge signals;
+- manifest hashes;
+- benchmark/gold consistency;
+- removal of obsolete vendor/payout/reconciliation/PostgreSQL artifacts.
 
-## 9. Loading PostgreSQL
+Known quality signals are expected and should be shown as warnings, not silently “fixed.”
+
+---
+
+## 9. Loading MySQL
 
 ```bash
-export DATABASE_URL='postgresql://postgres:postgres@localhost:5432/finance_assistant'
-python scripts/load_postgres.py --truncate
+docker compose up -d mysql redis
+python scripts/load_mysql.py --truncate
 ```
 
-The script creates tables, loads CSVs with PostgreSQL `COPY`, and installs views and indexes. Application credentials should use a read-only role. The loader/migration role is separate.
+Load order:
 
-## 10. Scale testing
+1. `bank`
+2. `account`
+3. `transaction`
+4. indexes
 
-Do not put 20 million rows in Git. Use `scripts/generate_scale_fixture.sql` or a dedicated key-remapping generator in a disposable database. The included SQL expands ordinary transaction rows for planner, filter, and cursor-pagination testing. A full relational scale generator should remap transaction, payout, and reconciliation foreign keys together.
+The loader sets `time_zone='+05:30'` and uses UTF-8. The runtime application should use a separate
+read-only user.
 
-Performance acceptance tests should use at least:
+---
 
-- 1,000-row fixture for correctness and local development;
-- 100,000 rows for routine query-plan and pagination tests;
-- 1–5 million rows for realistic index and export tests;
-- up to 20 million rows for final constraint validation when infrastructure permits.
+## 10. Extending the fixture safely
 
-The sample dataset is a correctness fixture, not a performance claim.
+When adding a question capability:
+
+1. Verify that the required source field truly exists.
+2. Add/adjust semantic contract first.
+3. Add generator records that distinguish correct from common wrong implementations.
+4. Recompute gold from source records.
+5. Add benchmark and multi-turn cases.
+6. Add validator/test coverage.
+7. Update manifest/version if semantics or records change.
+8. Update schema-gap docs and UI copy.
+
+Do not add a canonical vendor/reconciliation/category field unless the organisers supply a versioned
+source schema containing it. An inferred development-only field cannot become an official answer
+source without explicit labeling and evaluation.
+
+---
+
+## 11. Scale fixture
+
+`scripts/generate_scale_fixture.sql` duplicates rows in a throwaway MySQL database for query-plan
+measurement. It is not source data and should never be committed back into the gold CSV fixture.
+
+For every benchmark record actual row count, hardware, MySQL version, indexes, query plan,
+cold/warm status, p50/p95 and timeout settings. Do not claim 20M performance from the base fixture.

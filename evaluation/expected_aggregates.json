@@ -1,109 +1,59 @@
 {
-  "dataset_anchor": {
-    "data_as_of": "2026-09-03",
-    "timezone": "Asia/Kolkata",
-    "currency": "INR"
+  "dataset_version": "tiby-finance-fixture-v2.0.0",
+  "data_as_of": "2026-09-03T23:59:59.999999+05:30",
+  "currency": "INR",
+  "august_2026": {
+    "debit_total": {
+      "value": "121758278.46",
+      "unit": "INR",
+      "record_count": 205
+    },
+    "credit_total": {
+      "value": "302425859.82",
+      "unit": "INR",
+      "record_count": 80
+    },
+    "net_cash_flow": {
+      "value": "180667581.36",
+      "unit": "INR",
+      "record_count": 285
+    },
+    "transaction_count": {
+      "value": "285",
+      "unit": "records",
+      "record_count": 285
+    }
   },
-  "metrics": {
-    "august_2026_completed_vendor_payout_gross": "10000874.04",
-    "july_2026_completed_vendor_payout_gross": "6930339.40",
-    "july_to_august_absolute_change": "3070534.64",
-    "july_to_august_percent_change": "44.31",
-    "august_2026_posted_vendor_spend_net_of_credits_and_reversals": "10147850.99",
-    "last_30_days_posted_vendor_spend": "18987802.24",
-    "august_2026_aws_completed_payouts": "1655853.90",
-    "calendar_q2_2026_software_spend": "4386227.31",
-    "open_reconciliation_count": 133,
-    "open_reconciliation_amount": "20509837.53",
-    "open_reconciliation_older_than_30_days_count": 101,
-    "open_reconciliation_older_than_30_days_amount": "11945628.97",
-    "travel_open_items_2026_08_24_to_2026_08_30": 0,
-    "max_transaction_posting_date": "2026-09-03",
-    "max_completed_payout_date": "2026-09-03"
+  "july_2026": {
+    "debit_total": {
+      "value": "69995241.84",
+      "unit": "INR",
+      "record_count": 182
+    },
+    "credit_total": {
+      "value": "300733748.25",
+      "unit": "INR",
+      "record_count": 84
+    },
+    "net_cash_flow": {
+      "value": "230738506.41",
+      "unit": "INR",
+      "record_count": 266
+    },
+    "transaction_count": {
+      "value": "266",
+      "unit": "records",
+      "record_count": 266
+    }
   },
-  "top_5_august_vendors_by_completed_payout_gross": [
-    {
-      "vendor_id": "V0028",
-      "vendor": "DataForge Analytics",
-      "amount": "1850000.00"
-    },
-    {
-      "vendor_id": "V0003",
-      "vendor": "AWS",
-      "amount": "1655853.90"
-    },
-    {
-      "vendor_id": "V0001",
-      "vendor": "Acme Cloud Services",
-      "amount": "1382022.02"
-    },
-    {
-      "vendor_id": "V0035",
-      "vendor": "GrowthMint Media",
-      "amount": "771540.98"
-    },
-    {
-      "vendor_id": "V0005",
-      "vendor": "Microsoft Azure India",
-      "amount": "467268.44"
-    }
-  ],
-  "possible_duplicate_payout_group": [
-    {
-      "payout_id": "PAY-DUP-001",
-      "vendor_id": "V0035",
-      "payout_date": "2026-08-22",
-      "gross_amount": "245000.00",
-      "bank_reference": "UTR-DUP-0822-245000",
-      "invoice_reference": "GM-INV-0826-17"
-    },
-    {
-      "payout_id": "PAY-DUP-002",
-      "vendor_id": "V0035",
-      "payout_date": "2026-08-22",
-      "gross_amount": "245000.00",
-      "bank_reference": "UTR-DUP-0822-245000",
-      "invoice_reference": "GM-INV-0826-17"
-    }
-  ],
-  "anomaly_records": [
-    {
-      "payout_id": "PAY-ANOM-001",
-      "vendor_id": "V0028",
-      "vendor": "DataForge Analytics",
-      "amount": "1850000.00",
-      "historical_median": "178141.51",
-      "median_ratio": "10.39"
-    },
-    {
-      "payout_id": "PAY-000757",
-      "vendor_id": "V0003",
-      "vendor": "AWS",
-      "amount": "1655853.90",
-      "historical_median": "403453.23",
-      "median_ratio": "4.10"
-    },
-    {
-      "payout_id": "PAY-000808",
-      "vendor_id": "V0001",
-      "vendor": "Acme Cloud Services",
-      "amount": "1009350.65",
-      "historical_median": "224744.86",
-      "median_ratio": "4.49"
-    }
-  ],
-  "fixed_edge_case_ids": [
-    "TXN-ANOM-001",
-    "PAY-ANOM-001",
-    "PAY-DUP-001",
-    "PAY-DUP-002",
-    "TXN-REV-ORIG",
-    "TXN-REV-001",
-    "TXN-PROMPT-001",
-    "TXN-MISSING-REC-001",
-    "TXN-PART-001",
-    "PAY-FAIL-001",
-    "PAY-PEND-001",
-    "TXN-VOID-001"
-  ]
+  "current_available_balance": {
+    "value": "823392832.43",
+    "unit": "INR",
+    "record_count": 30
+  },
+  "current_hdfc_available_balance": {
+    "value": "8153593.44",
+    "unit": "INR",
+    "record_count": 5
+  }
 }

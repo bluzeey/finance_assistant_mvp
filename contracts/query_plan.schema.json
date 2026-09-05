@@ -1,20 +1,28 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://northstar.local/contracts/query_plan.schema.json",
-  "title": "Finance Assistant QueryPlan",
-  "description": "A model may produce this constrained plan. It must never produce SQL.",
+  "$id": "https://ledgerproof.local/contracts/query_plan.schema.json",
+  "title": "QueryPlan",
+  "description": "Validated, model-independent plan consumed by the allow-listed query compiler. It contains no SQL.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "intent", "metric", "date_range", "filters", "group_by", "sort", "limit", "comparison", "ambiguities", "unsupported_fields"],
+  "required": ["schema_version", "disposition", "metric", "date_range", "filters", "group_by", "comparison", "sort", "limit", "qualifications"],
   "properties": {
-    "schema_version": {"const": "1.0.0"},
-    "intent": {
-      "type": "string",
-      "enum": ["aggregate", "compare", "rank", "list", "drilldown", "detect", "metadata", "clarify", "refuse", "correct", "reset"]
-    },
+    "schema_version": {"const": "2.0"},
+    "disposition": {"enum": ["execute", "clarify", "unsupported"]},
     "metric": {
       "type": ["string", "null"],
-      "enum": ["vendor_payout_amount", "net_cash_outflow", "vendor_spend", "unreconciled_amount", "unreconciled_count", "possible_duplicate_payouts", "vendor_payout_anomaly", "data_freshness", null]
+      "enum": [
+        "debit_total",
+        "credit_total",
+        "net_cash_flow",
+        "transaction_count",
+        "average_transaction_amount",
+        "largest_transaction",
+        "current_available_balance",
+        "account_count",
+        "transaction_lookup",
+        null
+      ]
     },
     "date_range": {
       "oneOf": [
@@ -22,104 +30,164 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["start", "end_exclusive", "date_field", "source_phrase", "anchor_date", "calendar_basis"],
+          "required": ["start_inclusive", "end_exclusive", "timezone", "label", "source"],
           "properties": {
-            "start": {"type": "string", "format": "date"},
-            "end_exclusive": {"type": "string", "format": "date"},
-            "date_field": {"type": "string", "enum": ["payout_date", "posting_date", "transaction_date", "document_date", "due_date", "scheduled_date", "matched_on", "last_reviewed_at"]},
-            "source_phrase": {"type": "string", "maxLength": 120},
-            "anchor_date": {"type": "string", "format": "date"},
-            "calendar_basis": {"type": "string", "enum": ["explicit", "calendar", "fiscal", "rolling"]}
+            "start_inclusive": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?[+-]\\d{2}:\\d{2}$"},
+            "end_exclusive": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?[+-]\\d{2}:\\d{2}$"},
+            "timezone": {"const": "Asia/Kolkata"},
+            "label": {"type": "string", "minLength": 1, "maxLength": 120},
+            "source": {"enum": ["explicit", "relative_to_data_as_of", "inherited", "comparison"]}
           }
         }
       ]
     },
     "filters": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "vendor_ids": {"type": "array", "items": {"type": "string", "pattern": "^V[0-9]{4}$"}, "uniqueItems": true, "maxItems": 100},
-        "vendor_categories": {"type": "array", "items": {"type": "string"}, "uniqueItems": true, "maxItems": 30},
-        "account_codes": {"type": "array", "items": {"type": "string", "pattern": "^[0-9]{4}$"}, "uniqueItems": true, "maxItems": 100},
-        "departments": {"type": "array", "items": {"type": "string", "enum": ["Engineering", "Product", "Design", "Finance", "Operations", "Sales", "Marketing", "People", "Leadership"]}, "uniqueItems": true},
-        "cost_centers": {"type": "array", "items": {"type": "string"}, "uniqueItems": true, "maxItems": 100},
-        "project_codes": {"type": "array", "items": {"type": "string"}, "uniqueItems": true, "maxItems": 100},
-        "transaction_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true, "maxItems": 100},
-        "payout_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true, "maxItems": 100},
-        "transaction_status": {"type": "array", "items": {"type": "string", "enum": ["posted", "voided", "draft"]}, "uniqueItems": true},
-        "payout_status": {"type": "array", "items": {"type": "string", "enum": ["completed", "pending", "failed", "reversed"]}, "uniqueItems": true},
-        "reconciliation_status": {"type": "array", "items": {"type": "string", "enum": ["reconciled", "unreconciled", "partially_reconciled", "disputed"]}, "uniqueItems": true},
-        "reason_codes": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
-        "payment_methods": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
-        "amount": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["operator", "value"],
-          "properties": {
-            "operator": {"type": "string", "enum": ["eq", "gt", "gte", "lt", "lte", "between"]},
-            "value": {"type": ["string", "array"], "pattern": "^-?[0-9]+(\\.[0-9]{1,2})?$"}
-          }
-        }
-      }
+      "$ref": "#/$defs/filters"
     },
     "group_by": {
       "type": "array",
-      "items": {"type": "string", "enum": ["vendor_id", "vendor_category", "account_code", "department", "cost_center", "project_code", "day", "week", "month", "status", "reason_code", "payment_method"]},
+      "maxItems": 2,
       "uniqueItems": true,
-      "maxItems": 3
-    },
-    "sort": {
-      "type": "array",
-      "maxItems": 3,
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["field", "direction"],
-        "properties": {
-          "field": {"type": "string", "enum": ["value", "date", "vendor_name", "unreconciled_amount", "source_row_count"]},
-          "direction": {"type": "string", "enum": ["asc", "desc"]}
-        }
+        "enum": ["bank_code", "bank_name", "account_id", "entity_id", "program_id", "transaction_type", "day", "month"]
       }
     },
-    "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100},
     "comparison": {
       "oneOf": [
         {"type": "null"},
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["mode", "start", "end_exclusive"],
+          "required": ["kind", "date_range"],
           "properties": {
-            "mode": {"type": "string", "enum": ["previous_period", "explicit_period", "year_over_year"]},
-            "start": {"type": "string", "format": "date"},
-            "end_exclusive": {"type": "string", "format": "date"}
+            "kind": {"enum": ["previous_period", "custom_period"]},
+            "date_range": {"$ref": "#/$defs/dateRange"}
           }
         }
       ]
     },
-    "ambiguities": {
+    "sort": {
       "type": "array",
+      "maxItems": 2,
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["field", "reason", "choices", "blocks_execution"],
+        "required": ["field", "direction"],
         "properties": {
-          "field": {"type": "string"},
-          "reason": {"type": "string", "maxLength": 240},
-          "choices": {"type": "array", "items": {"type": "object"}, "maxItems": 10},
-          "blocks_execution": {"const": true}
+          "field": {"enum": ["transaction_date", "transaction_amount", "value", "record_count", "bank_code"]},
+          "direction": {"enum": ["asc", "desc"]}
         }
       }
     },
-    "unsupported_fields": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
-    "user_requested_explanation": {"type": "boolean", "default": false},
-    "user_requested_export": {"type": ["string", "null"], "enum": ["csv", "xlsx", null]}
+    "limit": {"type": "integer", "minimum": 1, "maximum": 1000},
+    "qualifications": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "description_literal_search",
+          "reference_not_unique",
+          "partial_data_range",
+          "current_snapshot_only",
+          "contains_data_quality_warnings"
+        ]
+      }
+    },
+    "clarification": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["question", "options"],
+      "properties": {
+        "question": {"type": "string", "minLength": 1, "maxLength": 300},
+        "options": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "label"],
+            "properties": {
+              "id": {"type": "string", "maxLength": 80},
+              "label": {"type": "string", "maxLength": 160},
+              "patch": {"type": "object"}
+            }
+          }
+        }
+      }
+    },
+    "unsupported_reason": {"type": ["string", "null"], "maxLength": 500}
+  },
+  "$defs": {
+    "dateRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start_inclusive", "end_exclusive", "timezone", "label", "source"],
+      "properties": {
+        "start_inclusive": {"type": "string"},
+        "end_exclusive": {"type": "string"},
+        "timezone": {"const": "Asia/Kolkata"},
+        "label": {"type": "string"},
+        "source": {"enum": ["explicit", "relative_to_data_as_of", "inherited", "comparison"]}
+      }
+    },
+    "moneyString": {
+      "type": "string",
+      "pattern": "^-?\\d{1,13}\\.\\d{2}$"
+    },
+    "filters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "bank_codes": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 10,
+          "items": {"enum": ["HDFC", "ICIC", "SBIN", "UTIB", "KKBK", "CNRB", "UBIN", "AUBL", "TMBL", "RATN"]}
+        },
+        "account_ids": {"type": "array", "uniqueItems": true, "maxItems": 100, "items": {"type": "string", "minLength": 1, "maxLength": 36}},
+        "entity_ids": {"type": "array", "uniqueItems": true, "maxItems": 100, "items": {"type": "string", "minLength": 1, "maxLength": 36}},
+        "program_ids": {"type": "array", "uniqueItems": true, "maxItems": 100, "items": {"type": "integer"}},
+        "transaction_types": {"type": "array", "uniqueItems": true, "maxItems": 2, "items": {"enum": ["credit", "debit"]}},
+        "description_contains": {"type": "string", "minLength": 2, "maxLength": 100},
+        "description_is_null": {"type": "boolean"},
+        "transaction_reference_id": {"type": "string", "minLength": 1, "maxLength": 64},
+        "transaction_id": {"type": "string", "minLength": 1, "maxLength": 36},
+        "amount_min": {"$ref": "#/$defs/moneyString"},
+        "amount_max": {"$ref": "#/$defs/moneyString"}
+      }
+    }
   },
   "allOf": [
     {
-      "if": {"properties": {"intent": {"enum": ["clarify", "refuse", "reset"]}}},
-      "then": {},
-      "else": {"properties": {"metric": {"type": "string"}}}
+      "if": {"properties": {"disposition": {"const": "execute"}}},
+      "then": {
+        "properties": {
+          "metric": {"type": "string"},
+          "clarification": {"type": "null"},
+          "unsupported_reason": {"type": "null"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"disposition": {"const": "clarify"}}},
+      "then": {
+        "properties": {
+          "metric": {"type": "null"},
+          "clarification": {"type": "object"},
+          "unsupported_reason": {"type": "null"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"disposition": {"const": "unsupported"}}},
+      "then": {
+        "properties": {
+          "metric": {"type": "null"},
+          "clarification": {"type": "null"},
+          "unsupported_reason": {"type": "string", "minLength": 1}
+        }
+      }
     }
   ]
 }

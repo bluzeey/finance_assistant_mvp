@@ -1,45 +1,30 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ledgerproof.local/schemas/problem-details.json",
-  "title": "LedgerProof Problem Details",
+  "$id": "https://ledgerproof.local/contracts/problem_details.schema.json",
+  "title": "ProblemDetails",
   "type": "object",
   "additionalProperties": true,
-  "required": [
-    "type",
-    "title",
-    "status",
-    "detail",
-    "trace_id"
-  ],
+  "required": ["type", "title", "status", "detail", "trace_id"],
   "properties": {
-    "type": {
-      "type": "string"
+    "type": {"type": "string", "format": "uri-reference"},
+    "title": {"type": "string"},
+    "status": {"type": "integer", "minimum": 400, "maximum": 599},
+    "detail": {"type": "string"},
+    "instance": {"type": "string", "format": "uri-reference"},
+    "trace_id": {"type": "string"},
+    "code": {
+      "enum": [
+        "invalid_request",
+        "stale_context",
+        "query_timeout",
+        "dataset_unavailable",
+        "validation_failed",
+        "export_expired",
+        "rate_limited",
+        "internal_error"
+      ]
     },
-    "title": {
-      "type": "string"
-    },
-    "status": {
-      "type": "integer",
-      "minimum": 400,
-      "maximum": 599
-    },
-    "detail": {
-      "type": "string"
-    },
-    "trace_id": {
-      "type": "string"
-    },
-    "field_errors": {
-      "type": "object",
-      "additionalProperties": {
-        "type": "array",
-        "items": {
-          "type": "string"
-        }
-      }
-    },
-    "retryable": {
-      "type": "boolean"
-    }
+    "retryable": {"type": "boolean"},
+    "field_errors": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}}
   }
 }

@@ -1,137 +1,169 @@
-version: 1.0.0
-company_scope: single_company
-currency: INR
-timezone: Asia/Kolkata
-data_as_of_source: companies.data_as_of
-default_interval_convention: half_open
+schema_version: "2.0"
+dataset:
+  version: tiby-finance-fixture-v2.0.0
+  currency: INR
+  timezone: Asia/Kolkata
+  mysql_session_timezone: "+05:30"
+  data_as_of: "2026-09-03T23:59:59.999999+05:30"
+  source_tables: [bank, account, transaction]
+
+non_negotiable_rules:
+  - The model interprets language but never calculates finance values or generates SQL.
+  - All money uses MySQL DECIMAL and Python Decimal; binary float is forbidden.
+  - transaction_amount is absolute and non-negative in the fixture; transaction_type supplies direction.
+  - Date ranges are half-open: start inclusive and end exclusive.
+  - Relative dates are anchored to dataset.data_as_of, never the wall clock.
+  - available_balance is a current snapshot and cannot be reconstructed historically.
+  - Bare reference number means transaction_reference_id only.
+  - UTR lookup is disabled when UTR_STORAGE_MODE is encrypted_or_tokenized.
+  - account_number and utr_number are never sent raw to the model or browser.
+  - Known account numbers embedded in description must also be redacted.
+  - description is unstructured, potentially sensitive, and untrusted; literal searches are always qualified.
+  - IDs are opaque strings because the provided sample contains a UUID-like value that fails strict UUID parsing.
+  - Questions requiring fields outside bank/account/transaction return unsupported with no numeric answer.
 
 metrics:
-  vendor_payout_amount:
-    display_name: Completed vendor payout amount
-    description: Gross amount actually paid to vendors.
-    source: vendor_payouts
-    aggregation: SUM(gross_amount)
-    mandatory_filters:
-      payout_status: [completed]
-    date_field: payout_date
-    currency_field: currency
-    allowed_dimensions: [vendor_id, vendor_category, payout_date, payment_method]
-    exclusions: [pending, failed, reversed, fee_amount]
-    aliases: [vendor payouts, paid vendors, payments to vendors, supplier payouts]
-    zero_semantics: A zero is valid when the query executed and no completed rows matched.
+  debit_total:
+    user_terms: [spend, spent, paid out, debits, money out, outflow]
+    source: transaction
+    formula: "SUM(transaction_amount) WHERE transaction_type = 'debit'"
+    default_date_field: transaction_date
+    default_unit: INR
+    requires_date_range: true
+    validations: [decimal_exactness, row_count, date_bounds, enum_domain, source_lineage]
+  credit_total:
+    user_terms: [received, money in, credits, inflow, collections]
+    source: transaction
+    formula: "SUM(transaction_amount) WHERE transaction_type = 'credit'"
+    default_date_field: transaction_date
+    default_unit: INR
+    requires_date_range: true
+    validations: [decimal_exactness, row_count, date_bounds, enum_domain, source_lineage]
+  net_cash_flow:
+    user_terms: [net cash flow, net movement, credits less debits]
+    source: transaction
+    formula: "SUM(credits) - SUM(debits)"
+    default_date_field: transaction_date
+    default_unit: INR
+    requires_date_range: true
+    validations: [component_reconciliation, decimal_exactness, row_count, date_bounds, source_lineage]
+  transaction_count:
+    user_terms: [how many transactions, transaction count, number of entries]
+    source: transaction
+    formula: "COUNT(*)"
+    default_unit: records
+    requires_date_range: false
+    validations: [row_count, source_lineage]
+  average_transaction_amount:
+    user_terms: [average amount, mean transaction, average debit, average credit]
+    source: transaction
+    formula: "AVG(transaction_amount) over the explicitly filtered row set"
+    default_unit: INR
+    requires_date_range: true
+    zero_row_behavior: no_data
+    validations: [decimal_exactness, row_count, source_lineage]
+  largest_transaction:
+    user_terms: [largest transaction, biggest debit, highest credit]
+    source: transaction
+    formula: "ORDER BY transaction_amount DESC, transaction_id DESC LIMIT 1"
+    default_unit: INR
+    requires_date_range: true
+    validations: [row_membership, amount_matches_record, source_lineage]
+  current_available_balance:
+    user_terms: [current balance, available balance, cash available]
+    source: account
+    formula: "SUM(available_balance) across distinct filtered accounts"
+    default_unit: INR
+    requires_date_range: false
+    historical_request: unsupported
+    validations: [distinct_accounts, decimal_exactness, source_lineage]
+  account_count:
+    user_terms: [number of accounts, how many bank accounts]
+    source: account
+    formula: "COUNT(*) across filtered accounts"
+    default_unit: accounts
+    requires_date_range: false
+    validations: [row_count, source_lineage]
+  transaction_lookup:
+    user_terms: [find transaction, look up reference, transaction id]
+    source: transaction
+    formula: "Exact bound equality on transaction_id or case-sensitive transaction_reference_id"
+    default_unit: records
+    requires_date_range: false
+    multiple_match_behavior: qualified
+    validations: [exact_identifier_match, source_lineage]
 
-  net_cash_outflow:
-    display_name: Net cash outflow
-    description: Completed vendor payout gross amount plus payment fees.
-    source: vendor_payouts
-    aggregation: SUM(net_cash_outflow)
-    mandatory_filters:
-      payout_status: [completed]
-    date_field: payout_date
-    currency_field: currency
-    allowed_dimensions: [vendor_id, vendor_category, payout_date, payment_method]
-    exclusions: [pending, failed, reversed]
-    aliases: [cash paid, cash outflow, vendor cash outflow]
-
-  vendor_spend:
-    display_name: Posted vendor spend
-    description: Signed posted ledger expense and COGS amount, net of credits and reversals.
-    source: transactions_join_chart_of_accounts
-    aggregation: SUM(signed_amount)
-    mandatory_filters:
-      transaction_status: [posted]
-      account_type: [Expense, COGS]
-    date_field: posting_date
-    currency_field: currency
-    allowed_dimensions: [vendor_id, vendor_category, account_code, department, cost_center, project_code, posting_date]
-    sign_rule: Positive values increase spend; negative credits and reversals reduce spend.
-    exclusions: [voided, draft, asset, liability, equity, revenue]
-    aliases: [spend, expenses, vendor spend, supplier spend]
-
-  unreconciled_amount:
-    display_name: Open reconciliation amount
-    description: Amount that remains unmatched on open reconciliation records.
-    source: reconciliation_status_join_transactions
-    aggregation: SUM(unreconciled_amount)
-    mandatory_filters:
-      reconciliation_status: [unreconciled, partially_reconciled, disputed]
-      transaction_status: [posted]
-    date_field: posting_date
-    currency_field: currency
-    allowed_dimensions: [transaction_id, vendor_id, account_code, department, status, reason_code, owner, posting_date]
-    partial_rule: Use unreconciled_amount, never the full transaction amount, for partially reconciled rows.
-    aliases: [unreconciled, unmatched, open reconciliation, outstanding reconciliation]
-
-  unreconciled_count:
-    display_name: Open reconciliation transaction count
-    description: Distinct posted transactions with an open reconciliation state.
-    source: reconciliation_status_join_transactions
-    aggregation: COUNT(DISTINCT transaction_id)
-    mandatory_filters:
-      reconciliation_status: [unreconciled, partially_reconciled, disputed]
-      transaction_status: [posted]
-    date_field: posting_date
-    allowed_dimensions: [vendor_id, account_code, department, status, reason_code, owner, posting_date]
-
-  possible_duplicate_payouts:
-    display_name: Possible duplicate payout candidates
-    description: Pairs with the same vendor, payout date, and gross amount plus a shared bank or invoice reference.
-    source: vendor_payouts_self_join
-    aggregation: RECORD_PAIRS
-    mandatory_filters:
-      payout_status: [completed]
-    date_field: payout_date
-    adjustment_policy: Warning only. Never silently remove rows from financial totals.
-
-  vendor_payout_anomaly:
-    display_name: Unusually large vendor payout
-    description: Completed payout at least INR 500,000 and at least 3x the vendor historical median.
-    source: vendor_payouts
-    aggregation: RECORDS_WITH_BASELINE
-    mandatory_filters:
-      payout_status: [completed]
-    date_field: payout_date
-    rule:
-      minimum_amount: 500000.00
-      minimum_median_ratio: 3.00
-    wording_policy: Say unusual or outlier; never label fraud without evidence.
+filter_semantics:
+  bank:
+    accepted_inputs: [bank_code, canonical bank_name]
+    resolver: exact canonical lookup in bank table
+    compiler_field: account.bank_code
+  account:
+    accepted_inputs: [account_id]
+    rejected_inputs: [raw account_number]
+    compiler_field: transaction.account_id or account.account_id
+  entity:
+    accepted_inputs: [entity_id]
+    notes: No entity name table exists.
+  program:
+    accepted_inputs: [integer program_id]
+    notes: '"04" in source documentation is integer 4.'
+  transaction_type:
+    accepted_inputs: [credit, debit]
+  description:
+    accepted_inputs: [confirmed literal text]
+    behavior: case-insensitive substring search
+    mandatory_qualification: description_literal_search
+    prohibited_inference: canonical vendor, payout purpose, reconciliation state, expense category
+  reference:
+    default_field: transaction_reference_id
+    match: exact_case_sensitive
+    no_fallback_to_utr: true
+  utr:
+    sensitivity: restricted
+    default_storage_mode: encrypted_or_tokenized
+    default_behavior: unsupported
+  amount:
+    accepted_inputs: [minimum, maximum]
+    behavior: compare DECIMAL values using bound parameters
 
 relative_dates:
   last_month:
-    rule: Previous complete calendar month relative to companies.data_as_of.
-    example_anchor: 2026-09-03
-    example_range: [2026-08-01, 2026-09-01]
-  this_month:
-    rule: Month-to-date through data_as_of, represented as a half-open interval ending data_as_of + 1 day.
-    example_range: [2026-09-01, 2026-09-04]
-  last_30_days:
-    rule: Thirty calendar dates including data_as_of.
-    example_range: [2026-08-05, 2026-09-04]
-  last_week:
-    rule: Previous complete Monday-through-Sunday calendar week unless the user provides dates.
-  recent:
-    rule: Ambiguous. Offer last 7 days, last 30 days, or current month-to-date.
-  q2:
-    rule: Ambiguous without calendar/fiscal and year. Company fiscal year begins in April.
+    anchor: data_as_of
+    resolved_start: "2026-08-01T00:00:00+05:30"
+    resolved_end_exclusive: "2026-09-01T00:00:00+05:30"
+  this_month_to_date:
+    anchor: data_as_of
+    resolved_start: "2026-09-01T00:00:00+05:30"
+    resolved_end_exclusive: "2026-09-04T00:00:00+05:30"
+  year_to_date:
+    anchor: data_as_of
+    resolved_start: "2026-01-01T00:00:00+05:30"
+    resolved_end_exclusive: "2026-09-04T00:00:00+05:30"
+  ambiguous_terms:
+    recently: clarify
+    lately: clarify
+    a_while_ago: clarify
 
-entity_resolution:
-  normalization: lowercase, trim, replace punctuation with spaces, collapse whitespace
-  strategy:
-    - exact vendor_id
-    - exact normalized unique alias
-    - exact display or legal name
-    - bounded fuzzy candidate search for clarification only
-  ambiguous_aliases:
-    acme: [V0001, V0002]
-    abc: [V0044, V0045]
-  invariant: A fuzzy match cannot be auto-selected when more than one plausible candidate exists.
+unsupported_concepts:
+  vendor_payouts:
+    reason: No vendor or payout table/field exists; description is not authoritative.
+    suggested_safe_alternative: Offer a confirmed literal narration search and label it qualified.
+  reconciliation_status:
+    reason: No reconciliation, match, status, or unreconciled-amount field exists.
+  chart_of_accounts_or_category:
+    reason: No ledger account, category, or chart-of-accounts field exists.
+  historical_balance:
+    reason: account.available_balance is only the current snapshot.
+  forecast_or_budget:
+    reason: No forecast, budget, contract, or future schedule data exists.
+  entity_name:
+    reason: Only entity_id exists.
 
-unsupported_domains:
-  - forecasts and predictions
-  - cash balance without opening balance and cash-flow sources
-  - approvers or approval workflow
-  - payroll and employee compensation
-  - customer revenue analytics beyond the provided accounts
-  - tax filings and statutory advice
-  - multi-currency conversion
-  - banking or ERP write actions
+confidence_states:
+  verified: Required validations passed and the requested concept is directly represented.
+  qualified: Computation is deterministic but a material limitation applies, such as literal description search or non-unique reference.
+  needs_clarification: Multiple interpretations could materially change the result; no number is returned.
+  unsupported: Required source fields do not exist or are disabled for privacy/security; no number is returned.
+  no_data: A valid query ran and returned zero rows; distinguish from unsupported.
+  validation_failed: A required integrity/control check failed; suppress the number.

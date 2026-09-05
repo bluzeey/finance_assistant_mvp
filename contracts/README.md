@@ -1,14 +1,19 @@
 # Contracts
 
-These files are machine-visible source of truth.
+These files separate language interpretation from deterministic finance execution.
 
-- `semantic_metrics.yaml` — finance definitions, mandatory filters, date fields, dimensions, aliases, ambiguity and unsupported domains.
-- `interpretation_draft.schema.json` — small-model output before deterministic resolution.
-- `query_plan.schema.json` — canonical executable request.
-- `query_state.schema.json` — versioned multi-turn state.
-- `computed_facts.schema.json` — deterministic execution output before wording.
-- `answer_receipt.schema.json` — user-visible/audit answer artifact.
-- `problem_details.schema.json` — safe API errors.
-- `openapi.yaml` — HTTP API.
+1. The lightweight model emits `InterpretationDraft` only.
+2. Deterministic resolvers map that draft plus `QueryState` to `QueryPlan`.
+3. An allow-listed compiler executes the plan against `bank`, `account`, and `` `transaction` ``.
+4. Validation produces `ComputedFacts`.
+5. The API returns an immutable `AnswerReceipt` or `ProblemDetails`.
 
-Contract changes require backend, frontend, samples, docs, and tests in the same ticket. Monetary values in JSON are decimal strings. Runtime code must not import evaluation gold.
+No schema accepts raw SQL. IDs deliberately use plain strings instead of JSON Schema's UUID
+format because one organiser-provided sample transaction ID is UUID-like but malformed. Runtime
+code must therefore treat identifiers as opaque values bounded by the source column length.
+
+Validate JSON documents with:
+
+```bash
+python scripts/validate_repository.py
+```
