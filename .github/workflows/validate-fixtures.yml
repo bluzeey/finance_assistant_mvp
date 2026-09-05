@@ -16,6 +16,7 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
+          cache-dependency-path: requirements-tools.txt
       - run: python -m pip install -r requirements-tools.txt
       - run: python scripts/generate_dataset.py --check
       - run: python scripts/validate_dataset.py
