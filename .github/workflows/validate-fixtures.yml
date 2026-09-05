@@ -1,0 +1,29 @@
+name: Validate source-aligned fixture and contracts
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: python -m pip install -r requirements-tools.txt
+      - run: python scripts/generate_dataset.py --check
+      - run: python scripts/validate_dataset.py
+      - run: python scripts/validate_repository.py
+      - run: python -m unittest discover -s tests -v
+      - run: python scripts/build_bundle.py --output /tmp/finance_ai_bot.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: finance-ai-bot-source-bundle
+          path: /tmp/finance_ai_bot.zip
+          if-no-files-found: error
