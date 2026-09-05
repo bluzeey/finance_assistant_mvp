@@ -1,6 +1,8 @@
 import type { ErrorInfo, PropsWithChildren, ReactNode } from 'react';
 import { Component } from 'react';
 
+import { Button } from '../components/ui/button';
+
 interface ErrorBoundaryState {
   error: Error | null;
 }
@@ -26,9 +28,9 @@ export class ErrorBoundary extends Component<PropsWithChildren, ErrorBoundarySta
         <main className="error-boundary" role="alert">
           <h1>Something went wrong</h1>
           <p>The finance workspace hit a UI error. No financial number was changed.</p>
-          <button type="button" onClick={() => this.setState({ error: null })}>
+          <Button type="button" onClick={() => this.setState({ error: null })}>
             Try again
-          </button>
+          </Button>
         </main>
       );
     }

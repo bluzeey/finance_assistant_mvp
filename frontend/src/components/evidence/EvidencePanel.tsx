@@ -1,5 +1,7 @@
 import { useState } from 'react';
 
+import { Button, ButtonLink } from '../ui/button';
+
 import type { AnswerReceipt, ValidationCheck } from '../../api/generated-types';
 
 interface EvidencePanelProps {
@@ -16,15 +18,16 @@ export function EvidencePanel({ receipt }: EvidencePanelProps) {
     <aside className="evidence-panel" aria-label="Answer evidence">
       <div className="tab-list" role="tablist" aria-label="Evidence tabs">
         {tabs.map((tab) => (
-          <button
+          <Button
             key={tab}
             role="tab"
             aria-selected={activeTab === tab}
             type="button"
+            variant={activeTab === tab ? 'default' : 'outline'}
             onClick={() => setActiveTab(tab)}
           >
             {tab}
-          </button>
+          </Button>
         ))}
       </div>
       <div className="evidence-body" role="tabpanel">
@@ -102,8 +105,12 @@ function ExportTab({ receipt }: EvidencePanelProps) {
       <h2>Export</h2>
       <p>Exports must match {receipt.lineage.source_row_count} rows and hash <code>{receipt.lineage.source_record_ids_hash}</code>.</p>
       <div className="button-row">
-        <a href={receipt.exports.csv_url ?? '#'} aria-disabled={!receipt.exports.csv_url}>CSV</a>
-        <a href={receipt.exports.xlsx_url ?? '#'} aria-disabled={!receipt.exports.xlsx_url}>Excel</a>
+        <ButtonLink href={receipt.exports.csv_url ?? '#'} aria-disabled={!receipt.exports.csv_url}>
+          CSV
+        </ButtonLink>
+        <ButtonLink href={receipt.exports.xlsx_url ?? '#'} aria-disabled={!receipt.exports.xlsx_url}>
+          Excel
+        </ButtonLink>
       </div>
     </section>
   );

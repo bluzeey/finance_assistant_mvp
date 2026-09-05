@@ -1,5 +1,6 @@
 import type { AnswerReceipt } from '../../api/generated-types';
 import { formatInrFromDecimal } from '../../lib/money';
+import { Button, ButtonLink } from '../ui/button';
 import { InterpretationChips } from './InterpretationChips';
 import { StatusBadge } from './StatusBadge';
 import { WarningList } from './WarningList';
@@ -41,12 +42,12 @@ export function AnswerCard({ receipt, onViewEvidence }: AnswerCardProps) {
       </footer>
 
       <div className="answer-actions">
-        <button type="button" onClick={onViewEvidence}>
+        <Button type="button" onClick={onViewEvidence}>
           View proof
-        </button>
-        <a href={receipt.exports.csv_url ?? '#'} aria-disabled={!receipt.exports.csv_url}>
+        </Button>
+        <ButtonLink href={receipt.exports.csv_url ?? '#'} aria-disabled={!receipt.exports.csv_url}>
           Export CSV
-        </a>
+        </ButtonLink>
       </div>
     </article>
   );

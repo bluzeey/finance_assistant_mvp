@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 
+import { Button } from '../../components/ui/button';
 import { QuestionComposer } from '../../components/chat/QuestionComposer';
 
 const examples = [
@@ -29,13 +30,15 @@ export function AskPage() {
         <h3 id="suggested-prompts-title">Suggested prompts</h3>
         <div className="prompt-grid">
           {examples.map((example) => (
-            <button
+            <Button
               key={example}
-              type="button"
-              onClick={() => navigate(`/ask/${crypto.randomUUID()}?draft=${encodeURIComponent(example)}`)}
+              variant="outline"
+              onClick={() =>
+                navigate(`/ask/${crypto.randomUUID()}?draft=${encodeURIComponent(example)}`)
+              }
             >
               {example}
-            </button>
+            </Button>
           ))}
         </div>
       </section>

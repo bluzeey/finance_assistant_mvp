@@ -1,5 +1,7 @@
 import { useId, useState } from 'react';
 
+import { Button } from '../ui/button';
+
 interface QuestionComposerProps {
   onSubmit: (message: string) => void;
   isPending?: boolean;
@@ -55,13 +57,13 @@ export function QuestionComposer({
         <span>{message.length}/{MAX_MESSAGE_LENGTH} · Enter sends, Shift+Enter adds a line</span>
         <div className="button-row">
           {isPending ? (
-            <button type="button" className="secondary" onClick={onCancel}>
+            <Button variant="secondary" type="button" onClick={onCancel}>
               Stop
-            </button>
+            </Button>
           ) : null}
-          <button type="submit" disabled={!canSubmit}>
+          <Button type="submit" disabled={!canSubmit}>
             Send
-          </button>
+          </Button>
         </div>
       </div>
     </form>
