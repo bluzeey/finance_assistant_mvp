@@ -26,3 +26,16 @@ Implement `/ask/:conversationId` with:
 - desktop and 360px mobile flow.
 
 Use `contracts/sample_verified_answer_receipt.json` as a development fixture only. Production UI must consume the backend response.
+
+## Current scaffold commands
+
+```bash
+cd frontend
+npm ci
+npm run generate:types
+npm run typecheck
+npm test
+npm run e2e -- --project=chromium
+```
+
+Set `VITE_USE_SAMPLE_RECEIPT=true` only for local fixture UI development. Leave it false for backend-integrated runs.

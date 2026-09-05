@@ -1,12 +1,14 @@
-.PHONY: validate generate services-up services-down load-db repo-check bundle
+PYTHON ?= python3
+
+.PHONY: validate generate services-up services-down load-db repo-check backend-test frontend-test bundle
 
 validate:
-	python scripts/validate_dataset.py
-	python scripts/validate_repository.py
+	$(PYTHON) scripts/validate_dataset.py
+	$(PYTHON) scripts/validate_repository.py
 
 generate:
-	python scripts/generate_dataset.py
-	python scripts/validate_dataset.py
+	$(PYTHON) scripts/generate_dataset.py
+	$(PYTHON) scripts/validate_dataset.py
 
 services-up:
 	docker compose up -d postgres redis
@@ -15,10 +17,16 @@ services-down:
 	docker compose down
 
 load-db:
-	python scripts/load_postgres.py --truncate
+	$(PYTHON) scripts/load_postgres.py --truncate
 
 repo-check:
-	python scripts/validate_repository.py
+	$(PYTHON) scripts/validate_repository.py
+
+backend-test:
+	cd backend && pytest
+
+frontend-test:
+	cd frontend && npm run typecheck && npm test
 
 bundle:
-	python scripts/build_bundle.py
+	$(PYTHON) scripts/build_bundle.py
