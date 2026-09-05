@@ -2,7 +2,7 @@
 
 ## Local services
 
-Docker orchestration is intentionally not part of this repository. Start PostgreSQL with your preferred local or hosted setup, create a `ledgerproof` database, and set `DATABASE_URL` in `.env`.
+Local service orchestration is intentionally not part of this repository. Start PostgreSQL with your preferred local or hosted setup, create a `ledgerproof` database, and set `DATABASE_URL` in `.env`.
 
 ```bash
 cp .env.example .env

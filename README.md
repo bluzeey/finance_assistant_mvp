@@ -71,7 +71,7 @@ The seed is fixed. Regeneration should be byte-stable unless the generator or sc
 
 ## Prepare PostgreSQL
 
-LedgerProof no longer ships Docker orchestration. Start PostgreSQL using your preferred local or hosted setup, create a `ledgerproof` database, then point `DATABASE_URL` at it.
+LedgerProof does not ship local service orchestration. Start PostgreSQL using your preferred local or hosted setup, create a `ledgerproof` database, then point `DATABASE_URL` at it.
 
 ```bash
 cp .env.example .env
