@@ -1,0 +1,470 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://northstar.local/contracts/answer_receipt.schema.json",
+  "title": "Finance Assistant AnswerReceipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "query_id",
+    "status",
+    "answer",
+    "primary_metric",
+    "interpretation",
+    "breakdown",
+    "lineage",
+    "validation",
+    "confidence",
+    "warnings",
+    "records_preview",
+    "exports",
+    "timings"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "query_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "conversation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "turn_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "verified",
+        "qualified",
+        "needs_clarification",
+        "not_answerable",
+        "no_matching_rows",
+        "error"
+      ]
+    },
+    "answer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plain_language",
+        "value",
+        "currency",
+        "unit"
+      ],
+      "properties": {
+        "plain_language": {
+          "type": "string"
+        },
+        "value": {
+          "type": [
+            "string",
+            "integer",
+            "number",
+            "null"
+          ]
+        },
+        "currency": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "INR",
+            null
+          ]
+        },
+        "unit": {
+          "type": "string",
+          "enum": [
+            "currency",
+            "count",
+            "percent",
+            "records",
+            "metadata",
+            "none"
+          ]
+        }
+      }
+    },
+    "primary_metric": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "metric_id",
+            "label",
+            "value",
+            "formatted_value"
+          ],
+          "properties": {
+            "metric_id": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "value": {
+              "type": [
+                "string",
+                "integer",
+                "number",
+                "null"
+              ]
+            },
+            "formatted_value": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "interpretation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canonical_query_plan",
+        "human_readable_steps",
+        "assumptions",
+        "context_changes"
+      ],
+      "properties": {
+        "canonical_query_plan": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "human_readable_steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "context_changes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "breakdown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "columns",
+        "rows",
+        "total_row"
+      ],
+      "properties": {
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "maxItems": 500
+        },
+        "total_row": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      }
+    },
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "company_id",
+        "dataset_version",
+        "data_as_of",
+        "executed_query_name",
+        "source_row_count",
+        "source_record_ids",
+        "source_record_ids_hash"
+      ],
+      "properties": {
+        "company_id": {
+          "type": "string"
+        },
+        "dataset_version": {
+          "type": "string"
+        },
+        "data_as_of": {
+          "type": "string",
+          "format": "date"
+        },
+        "executed_query_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_row_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_record_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 500
+        },
+        "source_record_ids_truncated": {
+          "type": "boolean"
+        },
+        "source_record_ids_hash": {
+          "type": "string"
+        },
+        "database_snapshot_id": {
+          "type": "string"
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "passed",
+        "checks"
+      ],
+      "properties": {
+        "passed": {
+          "type": "boolean"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "check_id",
+              "label",
+              "status",
+              "details"
+            ],
+            "properties": {
+              "check_id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pass",
+                  "warn",
+                  "fail",
+                  "not_applicable"
+                ]
+              },
+              "details": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "confidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "score",
+        "factors"
+      ],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "verified",
+            "qualified",
+            "blocked"
+          ]
+        },
+        "score": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Optional deterministic evidence score. It is not a model self-reported probability and should remain null unless a documented policy computes it."
+        },
+        "factors": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "clarification": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "records_preview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "columns",
+        "rows",
+        "next_cursor",
+        "total_count"
+      ],
+      "properties": {
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "maxItems": 100
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "total_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "exports": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "csv_url",
+        "xlsx_url",
+        "expires_at"
+      ],
+      "properties": {
+        "csv_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "xlsx_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expires_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    },
+    "timings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total_ms",
+        "parse_ms",
+        "query_ms",
+        "validation_ms",
+        "compose_ms"
+      ],
+      "properties": {
+        "total_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "parse_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "query_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "validation_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "compose_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "model_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "input_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "output_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cache_status": {
+          "type": "string",
+          "enum": [
+            "hit",
+            "miss",
+            "bypass"
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,222 @@
+{
+  "schema_version": "1.0.0",
+  "query_id": "11111111-1111-4111-8111-111111111111",
+  "conversation_id": "22222222-2222-4222-8222-222222222222",
+  "turn_id": "33333333-3333-4333-8333-333333333333",
+  "status": "verified",
+  "answer": {
+    "plain_language": "Northstar Labs completed INR 10,000,874.04 in vendor payouts during August 2026.",
+    "value": "10000874.04",
+    "currency": "INR",
+    "unit": "currency"
+  },
+  "primary_metric": {
+    "metric_id": "vendor_payout_amount",
+    "label": "Completed vendor payouts",
+    "value": "10000874.04",
+    "formatted_value": "₹1,00,00,874.04"
+  },
+  "interpretation": {
+    "canonical_query_plan": {
+      "schema_version": "1.0.0",
+      "intent": "aggregate",
+      "metric": "vendor_payout_amount",
+      "date_range": {
+        "start": "2026-08-01",
+        "end_exclusive": "2026-09-01",
+        "date_field": "payout_date",
+        "source_phrase": "last month",
+        "anchor_date": "2026-09-03",
+        "calendar_basis": "calendar"
+      },
+      "filters": {
+        "payout_status": [
+          "completed"
+        ]
+      },
+      "group_by": [],
+      "sort": [],
+      "limit": 100,
+      "comparison": null,
+      "ambiguities": [],
+      "unsupported_fields": [],
+      "user_requested_explanation": false,
+      "user_requested_export": null
+    },
+    "human_readable_steps": [
+      "Interpreted ‘last month’ as August 1 through August 31, 2026 using the dataset date of September 3, 2026.",
+      "Selected vendor payout records with payout_status = completed.",
+      "Summed gross_amount using database NUMERIC arithmetic."
+    ],
+    "assumptions": [],
+    "context_changes": [
+      "Set metric to completed vendor payout amount.",
+      "Set date range to August 2026."
+    ]
+  },
+  "breakdown": {
+    "columns": [
+      {
+        "key": "vendor",
+        "label": "Vendor",
+        "type": "text"
+      },
+      {
+        "key": "amount",
+        "label": "Payout amount",
+        "type": "currency"
+      }
+    ],
+    "rows": [
+      {
+        "vendor_id": "V0028",
+        "vendor": "DataForge Analytics",
+        "amount": "1850000.00"
+      },
+      {
+        "vendor_id": "V0003",
+        "vendor": "AWS",
+        "amount": "1655853.90"
+      },
+      {
+        "vendor_id": "V0001",
+        "vendor": "Acme Cloud Services",
+        "amount": "1382022.02"
+      }
+    ],
+    "total_row": {
+      "label": "All completed payouts",
+      "amount": "10000874.04"
+    }
+  },
+  "lineage": {
+    "company_id": "CMP-NL-001",
+    "dataset_version": "2026.09.04-hackathon-v1",
+    "data_as_of": "2026-09-03",
+    "executed_query_name": "vendor_payout_amount",
+    "source_row_count": 53,
+    "source_record_ids": [
+      "PAY-ANOM-001",
+      "PAY-DUP-001",
+      "PAY-DUP-002"
+    ],
+    "source_record_ids_truncated": true,
+    "source_record_ids_hash": "replace-with-runtime-sha256",
+    "database_snapshot_id": "northstar-2026-09-03-v1"
+  },
+  "validation": {
+    "passed": true,
+    "checks": [
+      {
+        "check_id": "V-DATE-001",
+        "label": "Date range is valid",
+        "status": "pass",
+        "details": "Half-open interval [2026-08-01, 2026-09-01)."
+      },
+      {
+        "check_id": "V-STATUS-001",
+        "label": "Only completed payouts included",
+        "status": "pass",
+        "details": "Pending, failed, and reversed attempts were excluded."
+      },
+      {
+        "check_id": "V-TOTAL-001",
+        "label": "Breakdown ties to total",
+        "status": "pass",
+        "details": "Full vendor breakdown equals the primary metric."
+      },
+      {
+        "check_id": "V-PRECISION-001",
+        "label": "Decimal precision",
+        "status": "pass",
+        "details": "Database NUMERIC(18,2); no float arithmetic."
+      }
+    ]
+  },
+  "confidence": {
+    "state": "verified",
+    "score": 96,
+    "factors": [
+      {
+        "factor": "score_policy",
+        "score": 96,
+        "reason": "Deterministic evidence score from declared resolution, coverage, and validation factors; not a model probability."
+      },
+      {
+        "factor": "entity_resolution",
+        "score": 100,
+        "reason": "No vendor ambiguity."
+      },
+      {
+        "factor": "date_resolution",
+        "score": 100,
+        "reason": "Defined relative period anchored to dataset date."
+      },
+      {
+        "factor": "data_coverage",
+        "score": 96,
+        "reason": "Payout records passed required-field checks."
+      },
+      {
+        "factor": "validation",
+        "score": 100,
+        "reason": "All financial invariants passed."
+      }
+    ]
+  },
+  "warnings": [
+    {
+      "code": "POSSIBLE_DUPLICATE_PAYOUTS",
+      "severity": "warning",
+      "message": "Two completed payouts share a vendor, date, amount, and bank reference. They remain included in the total until reviewed.",
+      "record_ids": [
+        "PAY-DUP-001",
+        "PAY-DUP-002"
+      ]
+    }
+  ],
+  "clarification": null,
+  "records_preview": {
+    "columns": [
+      {
+        "key": "payout_id",
+        "label": "Payout ID",
+        "type": "id"
+      },
+      {
+        "key": "payout_date",
+        "label": "Payout date",
+        "type": "date"
+      },
+      {
+        "key": "vendor",
+        "label": "Vendor",
+        "type": "text"
+      },
+      {
+        "key": "gross_amount",
+        "label": "Gross amount",
+        "type": "currency"
+      }
+    ],
+    "rows": [],
+    "next_cursor": null,
+    "total_count": 53
+  },
+  "exports": {
+    "csv_url": "/api/v1/queries/11111111-1111-4111-8111-111111111111/export?format=csv",
+    "xlsx_url": "/api/v1/queries/11111111-1111-4111-8111-111111111111/export?format=xlsx",
+    "expires_at": null
+  },
+  "timings": {
+    "total_ms": 428,
+    "parse_ms": 235,
+    "query_ms": 41,
+    "validation_ms": 18,
+    "compose_ms": 134,
+    "model_id": "small-structured-output-model",
+    "input_tokens": 642,
+    "output_tokens": 211,
+    "cache_status": "miss"
+  }
+}

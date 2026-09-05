@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ledgerproof.local/schemas/problem-details.json",
+  "title": "LedgerProof Problem Details",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "type",
+    "title",
+    "status",
+    "detail",
+    "trace_id"
+  ],
+  "properties": {
+    "type": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "status": {
+      "type": "integer",
+      "minimum": 400,
+      "maximum": 599
+    },
+    "detail": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "field_errors": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "retryable": {
+      "type": "boolean"
+    }
+  }
+}

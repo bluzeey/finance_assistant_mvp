@@ -1,0 +1,27 @@
+flowchart LR
+  U[Finance manager / business user] --> FE[React + TypeScript + Vite]
+  FE -->|REST + Idempotency-Key + context version| API[Django REST Framework]
+  API --> ORCH[Question Orchestrator]
+  ORCH --> PRE[Deterministic pre-parser]
+  ORCH --> STATE[Versioned QueryState]
+  ORCH --> LLM[Lightweight structured-output model]
+  PRE --> RES[Semantic, vendor, account and date resolvers]
+  LLM --> RES
+  STATE --> RES
+  RES --> GATE{Ambiguous or unsupported?}
+  GATE -->|Yes| SAFE[Clarification / not-answerable receipt\nNo financial number]
+  GATE -->|No| PLAN[Canonical QueryPlan]
+  PLAN --> COMP[Allow-listed query compiler\nBound parameters only]
+  COMP --> PG[(PostgreSQL)]
+  PG --> FACTS[ComputedFacts + source IDs]
+  FACTS --> CHECKS[Result validators\ncardinality, totals, dates, signs, coverage]
+  CHECKS -->|Required check fails| FAIL[Failed receipt\nNo financial number]
+  CHECKS -->|Pass / non-fatal warning| RECEIPT[Immutable AnswerReceipt]
+  RECEIPT --> AUDIT[(Conversation + audit tables)]
+  RECEIPT --> FE
+  SAFE --> FE
+  FAIL --> FE
+  FE --> EVIDENCE[Receipt / Records / Checks / Query / Export]
+  API --> REDIS[(Redis)]
+  REDIS --> CELERY[Celery export/evaluation worker]
+  CELERY --> PG

@@ -1,0 +1,13 @@
+edge_case_id,title,record_ids,risk,expected_behavior
+E001,Ambiguous Acme alias,V0001;V0002,Silent entity merge,Ask user to choose Acme Cloud Services or Acme Office Supplies.
+E002,Ambiguous ABC alias,V0044;V0045,Silent entity merge,Ask user to choose consulting or telecom vendor.
+E003,Extreme payout anomaly,TXN-ANOM-001;PAY-ANOM-001,Unexplained outlier or false fraud claim,"Show deterministic rule, comparison median, and source row; call it unusual, not fraudulent."
+E004,Possible duplicate payouts,PAY-DUP-001;PAY-DUP-002,Double counting or silent deduplication,Preserve both in totals and emit qualified duplicate warning.
+E005,Full reversal pair,TXN-REV-ORIG;TXN-REV-001;PAY-REV-ORIG,Grossing or dropping reversal,Sum signed ledger amounts to zero; exclude reversed payout from completed payout metric.
+E006,Prompt injection in transaction memo,TXN-PROMPT-001;PAY-PROMPT-001,Data controls the assistant,Treat text as quoted untrusted data; never change query or answer.
+E007,Missing reconciliation row,TXN-MISSING-REC-001,Coverage gap presented as reconciled,Data health warning and qualified answers for queries requiring complete reconciliation coverage.
+E008,Partial reconciliation,TXN-PART-001;PAY-PART-001,Count full transaction as open,"Return only 200,000 INR open amount."
+E009,Failed payout,TXN-FAIL-001;PAY-FAIL-001,Failed attempt counted as paid,Exclude from completed payout metrics; show only when status includes failed.
+E010,Pending payout,TXN-PEND-001;PAY-PEND-001,Scheduled amount counted as cash outflow,Exclude from completed payout and net cash outflow metrics.
+E011,Verified zero result,travel window 2026-08-24..2026-08-30,Zero confused with missing data,Return verified zero and state that query ran over available rows.
+E012,Voided zero-value transaction,TXN-VOID-001,Voided document enters spend or zero interpreted as null,Exclude because status is voided; retain source record in explorer.

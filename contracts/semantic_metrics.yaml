@@ -1,0 +1,137 @@
+version: 1.0.0
+company_scope: single_company
+currency: INR
+timezone: Asia/Kolkata
+data_as_of_source: companies.data_as_of
+default_interval_convention: half_open
+
+metrics:
+  vendor_payout_amount:
+    display_name: Completed vendor payout amount
+    description: Gross amount actually paid to vendors.
+    source: vendor_payouts
+    aggregation: SUM(gross_amount)
+    mandatory_filters:
+      payout_status: [completed]
+    date_field: payout_date
+    currency_field: currency
+    allowed_dimensions: [vendor_id, vendor_category, payout_date, payment_method]
+    exclusions: [pending, failed, reversed, fee_amount]
+    aliases: [vendor payouts, paid vendors, payments to vendors, supplier payouts]
+    zero_semantics: A zero is valid when the query executed and no completed rows matched.
+
+  net_cash_outflow:
+    display_name: Net cash outflow
+    description: Completed vendor payout gross amount plus payment fees.
+    source: vendor_payouts
+    aggregation: SUM(net_cash_outflow)
+    mandatory_filters:
+      payout_status: [completed]
+    date_field: payout_date
+    currency_field: currency
+    allowed_dimensions: [vendor_id, vendor_category, payout_date, payment_method]
+    exclusions: [pending, failed, reversed]
+    aliases: [cash paid, cash outflow, vendor cash outflow]
+
+  vendor_spend:
+    display_name: Posted vendor spend
+    description: Signed posted ledger expense and COGS amount, net of credits and reversals.
+    source: transactions_join_chart_of_accounts
+    aggregation: SUM(signed_amount)
+    mandatory_filters:
+      transaction_status: [posted]
+      account_type: [Expense, COGS]
+    date_field: posting_date
+    currency_field: currency
+    allowed_dimensions: [vendor_id, vendor_category, account_code, department, cost_center, project_code, posting_date]
+    sign_rule: Positive values increase spend; negative credits and reversals reduce spend.
+    exclusions: [voided, draft, asset, liability, equity, revenue]
+    aliases: [spend, expenses, vendor spend, supplier spend]
+
+  unreconciled_amount:
+    display_name: Open reconciliation amount
+    description: Amount that remains unmatched on open reconciliation records.
+    source: reconciliation_status_join_transactions
+    aggregation: SUM(unreconciled_amount)
+    mandatory_filters:
+      reconciliation_status: [unreconciled, partially_reconciled, disputed]
+      transaction_status: [posted]
+    date_field: posting_date
+    currency_field: currency
+    allowed_dimensions: [transaction_id, vendor_id, account_code, department, status, reason_code, owner, posting_date]
+    partial_rule: Use unreconciled_amount, never the full transaction amount, for partially reconciled rows.
+    aliases: [unreconciled, unmatched, open reconciliation, outstanding reconciliation]
+
+  unreconciled_count:
+    display_name: Open reconciliation transaction count
+    description: Distinct posted transactions with an open reconciliation state.
+    source: reconciliation_status_join_transactions
+    aggregation: COUNT(DISTINCT transaction_id)
+    mandatory_filters:
+      reconciliation_status: [unreconciled, partially_reconciled, disputed]
+      transaction_status: [posted]
+    date_field: posting_date
+    allowed_dimensions: [vendor_id, account_code, department, status, reason_code, owner, posting_date]
+
+  possible_duplicate_payouts:
+    display_name: Possible duplicate payout candidates
+    description: Pairs with the same vendor, payout date, and gross amount plus a shared bank or invoice reference.
+    source: vendor_payouts_self_join
+    aggregation: RECORD_PAIRS
+    mandatory_filters:
+      payout_status: [completed]
+    date_field: payout_date
+    adjustment_policy: Warning only. Never silently remove rows from financial totals.
+
+  vendor_payout_anomaly:
+    display_name: Unusually large vendor payout
+    description: Completed payout at least INR 500,000 and at least 3x the vendor historical median.
+    source: vendor_payouts
+    aggregation: RECORDS_WITH_BASELINE
+    mandatory_filters:
+      payout_status: [completed]
+    date_field: payout_date
+    rule:
+      minimum_amount: 500000.00
+      minimum_median_ratio: 3.00
+    wording_policy: Say unusual or outlier; never label fraud without evidence.
+
+relative_dates:
+  last_month:
+    rule: Previous complete calendar month relative to companies.data_as_of.
+    example_anchor: 2026-09-03
+    example_range: [2026-08-01, 2026-09-01]
+  this_month:
+    rule: Month-to-date through data_as_of, represented as a half-open interval ending data_as_of + 1 day.
+    example_range: [2026-09-01, 2026-09-04]
+  last_30_days:
+    rule: Thirty calendar dates including data_as_of.
+    example_range: [2026-08-05, 2026-09-04]
+  last_week:
+    rule: Previous complete Monday-through-Sunday calendar week unless the user provides dates.
+  recent:
+    rule: Ambiguous. Offer last 7 days, last 30 days, or current month-to-date.
+  q2:
+    rule: Ambiguous without calendar/fiscal and year. Company fiscal year begins in April.
+
+entity_resolution:
+  normalization: lowercase, trim, replace punctuation with spaces, collapse whitespace
+  strategy:
+    - exact vendor_id
+    - exact normalized unique alias
+    - exact display or legal name
+    - bounded fuzzy candidate search for clarification only
+  ambiguous_aliases:
+    acme: [V0001, V0002]
+    abc: [V0044, V0045]
+  invariant: A fuzzy match cannot be auto-selected when more than one plausible candidate exists.
+
+unsupported_domains:
+  - forecasts and predictions
+  - cash balance without opening balance and cash-flow sources
+  - approvers or approval workflow
+  - payroll and employee compensation
+  - customer revenue analytics beyond the provided accounts
+  - tax filings and statutory advice
+  - multi-currency conversion
+  - banking or ERP write actions

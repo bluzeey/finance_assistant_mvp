@@ -1,0 +1,30 @@
+component_id,component,area,responsibility,critical_states,priority
+APP-001,AppShell,global,"Navigation, header, main region, evidence slot",desktop/tablet/mobile,P0
+APP-002,PrimaryNav,global,Routes and active state; drawer on mobile,keyboard/focus,P0
+APP-003,DatasetFreshnessChip,global,Data-as-of and fresh/delayed/stale/unknown,not colour-only,P0
+ASK-001,ConversationList,ask,"Recent conversations, rename/delete/copy link",empty/loading/error,P1
+ASK-002,QuestionComposer,ask,"Text entry, send, stop, retry, examples",idempotency/cancel,P0
+ASK-003,ProcessingStages,ask,Understanding/resolving/querying/validating,aria-live concise,P0
+ANS-001,AnswerCard,ask,All answer statuses and result content,verified/qualified/clarification/not-answerable/no-match/error,P0
+ANS-002,InterpretationChips,ask,Metric/date/filters/grouping/status,overflow/wrap,P0
+ANS-003,ComparisonSummary,ask,"Current, prior, absolute, percentage",zero baseline,P0
+ANS-004,BreakdownTable,ask/evidence,Server totals and group rows,cursor/sort/empty,P0
+ANS-005,WarningBanner,ask/evidence,Data-quality and coverage warnings,codes/details,P0
+EVD-001,EvidencePanel,global,Receipt/records/checks/query/export,URL-preserving,P0
+EVD-002,ReceiptView,evidence,"Interpretation, calc, lineage, versions",copyable IDs,P0
+EVD-003,RecordsTable,evidence,Source records with cursor pagination,sticky ID/mobile,P0
+EVD-004,ChecksList,evidence,Pass/warn/fail validation checks,explanations,P0
+EVD-005,QueryExplanation,evidence,Named query and human-readable plan,no chain-of-thought,P0
+EVD-006,ExportPanel,evidence,CSV/XLSX creation/download status,parity/errors,P0
+CLR-001,ClarificationChoices,ask,Concrete candidate selection,no financial number,P0
+EXP-001,FilterBar,explorer,URL-backed filters and reset,validation/mobile sheet,P0
+EXP-002,DataGrid,explorer,Transactions/payouts table,server sort/cursor,P0
+REC-001,ReconciliationKpis,reconciliation,Open count/amount/partial/disputed/oldest,server values,P0
+REC-002,AgeingBreakdown,reconciliation,Declared ageing buckets,table alternative,P0
+DHL-001,HealthSummary,data-health,"Freshness, counts, integrity, gaps",warning impact,P0
+GLS-001,GlossarySearch,glossary,Search metrics/fields/statuses,no-results,P0
+EVL-001,BenchmarkScorecard,evaluation,Accuracy/safety/latency/cost,actual runs only,P1
+GEN-001,ProblemError,global,Safe problem+json rendering and retry,trace ID,P0
+GEN-002,EmptyState,global,Purposeful empty/filter no-match variants,clear action,P0
+GEN-003,Skeleton,global,Stable staged loading,reduced motion,P0
+GEN-004,ToastRegion,global,Non-blocking success/error notices,aria-live,P0

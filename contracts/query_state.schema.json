@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ledgerproof.local/schemas/query-state.json",
+  "title": "LedgerProof QueryState",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "context_version",
+    "metric",
+    "date_range",
+    "filters",
+    "group_by",
+    "sort",
+    "comparison",
+    "referenced_query_ids",
+    "pending_clarification"
+  ],
+  "properties": {
+    "context_version": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "metric": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "date_range": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "start",
+            "end_exclusive",
+            "date_field",
+            "source_phrase",
+            "anchor_date",
+            "calendar_basis"
+          ],
+          "properties": {
+            "start": {
+              "type": "string",
+              "format": "date"
+            },
+            "end_exclusive": {
+              "type": "string",
+              "format": "date"
+            },
+            "date_field": {
+              "type": "string",
+              "enum": [
+                "payout_date",
+                "posting_date",
+                "transaction_date",
+                "document_date",
+                "due_date",
+                "scheduled_date",
+                "matched_on",
+                "last_reviewed_at"
+              ]
+            },
+            "source_phrase": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "anchor_date": {
+              "type": "string",
+              "format": "date"
+            },
+            "calendar_basis": {
+              "type": "string",
+              "enum": [
+                "explicit",
+                "calendar",
+                "fiscal",
+                "rolling"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "filters": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": [
+            "string",
+            "number",
+            "boolean"
+          ]
+        }
+      }
+    },
+    "group_by": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "sort": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "field",
+          "direction"
+        ],
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "direction": {
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          }
+        }
+      }
+    },
+    "comparison": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "referenced_query_ids": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      }
+    },
+    "pending_clarification": {
+      "type": [
+        "object",
+        "null"
+      ]
+    }
+  }
+}

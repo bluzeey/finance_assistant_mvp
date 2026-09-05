@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://northstar.local/contracts/query_plan.schema.json",
+  "title": "Finance Assistant QueryPlan",
+  "description": "A model may produce this constrained plan. It must never produce SQL.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "intent", "metric", "date_range", "filters", "group_by", "sort", "limit", "comparison", "ambiguities", "unsupported_fields"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "intent": {
+      "type": "string",
+      "enum": ["aggregate", "compare", "rank", "list", "drilldown", "detect", "metadata", "clarify", "refuse", "correct", "reset"]
+    },
+    "metric": {
+      "type": ["string", "null"],
+      "enum": ["vendor_payout_amount", "net_cash_outflow", "vendor_spend", "unreconciled_amount", "unreconciled_count", "possible_duplicate_payouts", "vendor_payout_anomaly", "data_freshness", null]
+    },
+    "date_range": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["start", "end_exclusive", "date_field", "source_phrase", "anchor_date", "calendar_basis"],
+          "properties": {
+            "start": {"type": "string", "format": "date"},
+            "end_exclusive": {"type": "string", "format": "date"},
+            "date_field": {"type": "string", "enum": ["payout_date", "posting_date", "transaction_date", "document_date", "due_date", "scheduled_date", "matched_on", "last_reviewed_at"]},
+            "source_phrase": {"type": "string", "maxLength": 120},
+            "anchor_date": {"type": "string", "format": "date"},
+            "calendar_basis": {"type": "string", "enum": ["explicit", "calendar", "fiscal", "rolling"]}
+          }
+        }
+      ]
+    },
+    "filters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "vendor_ids": {"type": "array", "items": {"type": "string", "pattern": "^V[0-9]{4}$"}, "uniqueItems": true, "maxItems": 100},
+        "vendor_categories": {"type": "array", "items": {"type": "string"}, "uniqueItems": true, "maxItems": 30},
+        "account_codes": {"type": "array", "items": {"type": "string", "pattern": "^[0-9]{4}$"}, "uniqueItems": true, "maxItems": 100},
+        "departments": {"type": "array", "items": {"type": "string", "enum": ["Engineering", "Product", "Design", "Finance", "Operations", "Sales", "Marketing", "People", "Leadership"]}, "uniqueItems": true},
+        "cost_centers": {"type": "array", "items": {"type": "string"}, "uniqueItems": true, "maxItems": 100},
+        "project_codes": {"type": "array", "items": {"type": "string"}, "uniqueItems": true, "maxItems": 100},
+        "transaction_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true, "maxItems": 100},
+        "payout_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true, "maxItems": 100},
+        "transaction_status": {"type": "array", "items": {"type": "string", "enum": ["posted", "voided", "draft"]}, "uniqueItems": true},
+        "payout_status": {"type": "array", "items": {"type": "string", "enum": ["completed", "pending", "failed", "reversed"]}, "uniqueItems": true},
+        "reconciliation_status": {"type": "array", "items": {"type": "string", "enum": ["reconciled", "unreconciled", "partially_reconciled", "disputed"]}, "uniqueItems": true},
+        "reason_codes": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "payment_methods": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "amount": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["operator", "value"],
+          "properties": {
+            "operator": {"type": "string", "enum": ["eq", "gt", "gte", "lt", "lte", "between"]},
+            "value": {"type": ["string", "array"], "pattern": "^-?[0-9]+(\\.[0-9]{1,2})?$"}
+          }
+        }
+      }
+    },
+    "group_by": {
+      "type": "array",
+      "items": {"type": "string", "enum": ["vendor_id", "vendor_category", "account_code", "department", "cost_center", "project_code", "day", "week", "month", "status", "reason_code", "payment_method"]},
+      "uniqueItems": true,
+      "maxItems": 3
+    },
+    "sort": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["field", "direction"],
+        "properties": {
+          "field": {"type": "string", "enum": ["value", "date", "vendor_name", "unreconciled_amount", "source_row_count"]},
+          "direction": {"type": "string", "enum": ["asc", "desc"]}
+        }
+      }
+    },
+    "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100},
+    "comparison": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "start", "end_exclusive"],
+          "properties": {
+            "mode": {"type": "string", "enum": ["previous_period", "explicit_period", "year_over_year"]},
+            "start": {"type": "string", "format": "date"},
+            "end_exclusive": {"type": "string", "format": "date"}
+          }
+        }
+      ]
+    },
+    "ambiguities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["field", "reason", "choices", "blocks_execution"],
+        "properties": {
+          "field": {"type": "string"},
+          "reason": {"type": "string", "maxLength": 240},
+          "choices": {"type": "array", "items": {"type": "object"}, "maxItems": 10},
+          "blocks_execution": {"const": true}
+        }
+      }
+    },
+    "unsupported_fields": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "user_requested_explanation": {"type": "boolean", "default": false},
+    "user_requested_export": {"type": ["string", "null"], "enum": ["csv", "xlsx", null]}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"intent": {"enum": ["clarify", "refuse", "reset"]}}},
+      "then": {},
+      "else": {"properties": {"metric": {"type": "string"}}}
+    }
+  ]
+}

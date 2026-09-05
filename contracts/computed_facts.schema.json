@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ledgerproof.local/schemas/computed-facts.json",
+  "title": "LedgerProof ComputedFacts",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "query_id",
+    "metric",
+    "result_type",
+    "primary_value",
+    "currency",
+    "breakdown",
+    "source_row_count",
+    "source_row_ids_hash",
+    "validation_checks",
+    "dataset_version"
+  ],
+  "properties": {
+    "query_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "metric": {
+      "type": "string"
+    },
+    "result_type": {
+      "enum": [
+        "currency",
+        "count",
+        "records",
+        "percentage",
+        "freshness",
+        "none"
+      ]
+    },
+    "primary_value": {
+      "type": [
+        "string",
+        "integer",
+        "null"
+      ],
+      "description": "Money and percentages are decimal strings."
+    },
+    "currency": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[A-Z]{3}$"
+    },
+    "comparison": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "breakdown": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object"
+      }
+    },
+    "source_row_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "source_row_ids_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "source_row_ids_preview": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "string"
+      }
+    },
+    "validation_checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "status",
+          "message",
+          "required"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pass",
+              "warn",
+              "fail"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "dataset_version": {
+      "type": "string"
+    },
+    "data_as_of": {
+      "type": "string",
+      "format": "date"
+    }
+  }
+}

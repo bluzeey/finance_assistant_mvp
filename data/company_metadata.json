@@ -1,0 +1,22 @@
+{
+  "company_id": "CMP-NL-001",
+  "legal_name": "Northstar Labs India Private Limited",
+  "display_name": "Northstar Labs",
+  "dataset_purpose": "Synthetic single-company finance assistant hackathon dataset",
+  "synthetic": true,
+  "currency": "INR",
+  "timezone": "Asia/Kolkata",
+  "fiscal_year_start_month": 4,
+  "data_as_of": "2026-09-03",
+  "generated_at": "2026-09-04T09:00:00+05:30",
+  "generation_seed": 20260904,
+  "default_semantics": {
+    "vendor_payout_amount": "SUM(vendor_payouts.gross_amount) where payout_status = completed, dated by payout_date",
+    "net_cash_outflow": "SUM(vendor_payouts.net_cash_outflow) where payout_status = completed, dated by payout_date",
+    "vendor_spend": "SUM(transactions.signed_amount) where status = posted and account_type in (Expense, COGS), dated by posting_date",
+    "unreconciled_amount": "SUM(reconciliation_status.unreconciled_amount) for unreconciled, partially_reconciled, or disputed rows",
+    "last_month": "Previous complete calendar month relative to data_as_of",
+    "last_30_days": "Half-open interval [data_as_of - 29 days, data_as_of + 1 day)"
+  },
+  "important_notice": "All people, companies, references, tax identifiers, and financial records in the generated CSV files are fictitious. Product names used as vendor labels are for interoperability testing only and do not represent real bills or relationships."
+}

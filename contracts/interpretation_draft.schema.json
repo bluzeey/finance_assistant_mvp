@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ledgerproof.local/schemas/interpretation-draft.json",
+  "title": "LedgerProof InterpretationDraft",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "intent",
+    "metric_candidate",
+    "entities",
+    "periods",
+    "dimensions",
+    "statuses",
+    "correction_operations",
+    "unsupported_concepts",
+    "ambiguity_notes"
+  ],
+  "properties": {
+    "intent": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "aggregate",
+        "compare",
+        "rank",
+        "list",
+        "lookup",
+        "ageing",
+        "data_health",
+        "anomaly",
+        "definition",
+        "export",
+        null
+      ]
+    },
+    "metric_candidate": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 100
+    },
+    "entities": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "text"
+        ],
+        "properties": {
+          "type": {
+            "enum": [
+              "vendor",
+              "account",
+              "department",
+              "cost_center",
+              "project",
+              "transaction",
+              "payout",
+              "status"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      }
+    },
+    "periods": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "text",
+          "role"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "role": {
+            "enum": [
+              "primary",
+              "comparison",
+              "age_anchor"
+            ]
+          }
+        }
+      }
+    },
+    "dimensions": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "string",
+        "maxLength": 100
+      }
+    },
+    "statuses": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "string",
+        "maxLength": 100
+      }
+    },
+    "correction_operations": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation",
+          "field",
+          "value_text"
+        ],
+        "properties": {
+          "operation": {
+            "enum": [
+              "SET",
+              "REPLACE",
+              "ADD",
+              "REMOVE",
+              "CLEAR",
+              "RESET",
+              "REFER_TO_RESULT"
+            ]
+          },
+          "field": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "value_text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          }
+        }
+      }
+    },
+    "unsupported_concepts": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "ambiguity_notes": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "string",
+        "maxLength": 300
+      }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+route,page,jobs,api_dependencies,required_states,accessibility_responsive,priority
+/ask,Ask empty,"Examples, supported/unsupported scope, new conversation",GET meta; POST conversation/message,"empty, loading, offline, global error",keyboard composer; 360px,P0
+/ask/:conversationId,Conversation,"Multi-turn answers, clarify, correct, evidence, export",GET conversation; POST message; GET receipt/records/export,"all six answer states, stale conflict, retry",screen reader status; evidence sheet,P0
+/explorer,Data Explorer,Filter transactions/payouts and inspect rows,GET explorer endpoints,"no filters, no matches, invalid cursor, timeout",table keyboard; mobile scroll/cards,P0
+/reconciliation,Reconciliation,"Open balances, ageing, owners, details",GET reconciliation summary/list,"zero open, partial, disputed, delayed data",amount labels and table semantics,P0
+/data-health,Data Health,"Freshness, integrity, missing links, duplicate candidates",GET health endpoints,"healthy, warnings, unavailable check",warnings not colour-only,P0
+/glossary,Glossary,Definitions and examples,GET glossary,"loading, no search results",search label/headings,P0
+/evaluation,Evaluation,Benchmark evidence and model rationale,POST/GET evaluation local endpoints,"no run, running, failed, complete",tables/charts alternatives,P1
+/about,About,"Scope, architecture, synthetic disclosure, limitations",GET meta/static,normal,structured headings,P0
+*,Not found,Return to Ask without losing valid session,none,404,focus heading,P0

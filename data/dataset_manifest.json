@@ -1,0 +1,107 @@
+{
+  "schema_version": "1.0.0",
+  "dataset_version": "2026.09.04-hackathon-v1",
+  "generated_at": "2026-09-04T09:00:00+05:30",
+  "data_as_of": "2026-09-03",
+  "seed": 20260904,
+  "company_id": "CMP-NL-001",
+  "currency": "INR",
+  "files": [
+    {
+      "path": "data/README.md",
+      "bytes": 487,
+      "sha256": "d2fd95c770b7fef155c4ffd6d86a4809f2a3304168af7764bdf9afbe82c0a031",
+      "row_count": null
+    },
+    {
+      "path": "data/company_metadata.json",
+      "bytes": 1384,
+      "sha256": "526fb256f90c06d99bfa4779e868e3ca50b5c61a05b14a6d94addc595b3a7033",
+      "row_count": null
+    },
+    {
+      "path": "data/csv/chart_of_accounts.csv",
+      "bytes": 3459,
+      "sha256": "fe5c29a457c4df892831fd2452c3d514c3c3232a659e51311939f4194298241a",
+      "row_count": 33
+    },
+    {
+      "path": "data/csv/data_dictionary.csv",
+      "bytes": 14570,
+      "sha256": "cc64abf9d24f4eaecf904f41b4e7eca49e2ef074bb4ac8575b182c5b8a50a7f4",
+      "row_count": 87
+    },
+    {
+      "path": "data/csv/reconciliation_status.csv",
+      "bytes": 175855,
+      "sha256": "752f33605cecbc4a520b7ec36f6f67ee7ff32d83b3b8cd31cc2105c56c5cd971",
+      "row_count": 957
+    },
+    {
+      "path": "data/csv/transactions.csv",
+      "bytes": 269836,
+      "sha256": "91896c5b9648faff54ef5b66cbe77306a559aa473bd6380e786010afa90ca101",
+      "row_count": 969
+    },
+    {
+      "path": "data/csv/vendor_aliases.csv",
+      "bytes": 13456,
+      "sha256": "22718afe9e91247cca15a057c503a0880200cf8b7aadb381190bd74c71f48752",
+      "row_count": 189
+    },
+    {
+      "path": "data/csv/vendor_payouts.csv",
+      "bytes": 169220,
+      "sha256": "ff004d37237d91990a1c53bdaf87f54fd2170729bfe98cece1bb1f52c58aa222",
+      "row_count": 919
+    },
+    {
+      "path": "data/csv/vendors.csv",
+      "bytes": 10971,
+      "sha256": "40b2f3c363480bba5ad2d2b1a7d68ac737a04d633a90be4fd5673f1a19b8f299",
+      "row_count": 56
+    },
+    {
+      "path": "evaluation/README.md",
+      "bytes": 658,
+      "sha256": "773ca7204d1a4db6600896b7380ea6c701409449914333c22f460a59e9325e5b",
+      "row_count": null
+    },
+    {
+      "path": "evaluation/benchmark_cases.jsonl",
+      "bytes": 23625,
+      "sha256": "42fdebaa3ed4bb5314035c613bc040ee5f7a5d61002164ae12a59c6e9ef2b9d5",
+      "row_count": 22
+    },
+    {
+      "path": "evaluation/benchmark_conversations.jsonl",
+      "bytes": 1913,
+      "sha256": "01ddb76d646f8effae3cbc3cb6ab7a1aa8f7088224ffc277fec23461e64bc0e6",
+      "row_count": 3
+    },
+    {
+      "path": "evaluation/benchmark_questions.csv",
+      "bytes": 16445,
+      "sha256": "093e5fac1c919863c352afa032820d95451ab0a1e37fe2c72139a63c66bee34f",
+      "row_count": 22
+    },
+    {
+      "path": "evaluation/edge_case_manifest.csv",
+      "bytes": 1937,
+      "sha256": "ef7dd53b449f9c48bf9be481b6444f64325b33e1b7f4ac0a3602e8c20e8aac94",
+      "row_count": 12
+    },
+    {
+      "path": "evaluation/expected_aggregates.json",
+      "bytes": 2991,
+      "sha256": "34e221ea85f17993870b3021291c4fb6f88902bcb3fa781be55991bc7adfa1ad",
+      "row_count": null
+    },
+    {
+      "path": "evaluation/model_benchmark_results_template.csv",
+      "bytes": 260,
+      "sha256": "abd7bf3f8cfcb2b508daa3b25ef47ffeb188a03f388e760cc29f3f0bc8bd77dc",
+      "row_count": 1
+    }
+  ]
+}
