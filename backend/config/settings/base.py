@@ -1,7 +1,7 @@
 """Base Django settings for the LedgerProof backend.
 
-The default local database points at the Docker Compose PostgreSQL service. Test
-settings override this with SQLite so foundation tests do not require services.
+The default local database points at PostgreSQL on localhost. Test settings
+override this with SQLite so foundation tests do not require external services.
 """
 from __future__ import annotations
 
