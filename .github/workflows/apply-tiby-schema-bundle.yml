@@ -1,0 +1,71 @@
+name: Apply Tiby schema bundle
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "_schema_bundle/**"
+      - ".github/workflows/apply-tiby-schema-bundle.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Decode and extract schema-aligned bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat _schema_bundle/part-*.txt | base64 -d > /tmp/finance_ai_bot.tar.xz
+          mkdir -p /tmp/bundle
+          tar -xJf /tmp/finance_ai_bot.tar.xz -C /tmp/bundle
+
+      - name: Regenerate and validate deterministic data
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/bundle/finance_ai_bot
+          python scripts/generate_dataset.py
+          python scripts/validate_dataset.py
+          python scripts/validate_repository.py
+          python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Preserve the research DOCX
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/bundle/finance_ai_bot/docs/research
+          if [[ -f docs/research/finance_assistant_market_user_research_report.docx ]]; then
+            cp docs/research/finance_assistant_market_user_research_report.docx \
+               /tmp/bundle/finance_ai_bot/docs/research/
+          fi
+
+      - name: Replace main tree with Tiby-aligned repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          rsync -a --delete \
+            --exclude='.git/' \
+            --exclude='_schema_bundle/' \
+            --exclude='.github/workflows/apply-tiby-schema-bundle.yml' \
+            /tmp/bundle/finance_ai_bot/ ./
+          rm -rf _schema_bundle
+
+      - name: Commit validated repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "Align repository with Tiby three-table MySQL schema"
+          git push origin HEAD:main
