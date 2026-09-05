@@ -55,7 +55,7 @@ jobs:
           rsync -a --delete \
             --exclude='.git/' \
             --exclude='_schema_bundle/' \
-            --exclude='.github/workflows/apply-tiby-schema-bundle.yml' \
+            --exclude='.github/workflows/' \
             /tmp/bundle/finance_ai_bot/ ./
           rm -rf _schema_bundle
 
