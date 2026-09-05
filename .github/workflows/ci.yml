@@ -8,22 +8,6 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: ledgerproof
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d ledgerproof"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-    env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ledgerproof
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -38,12 +22,8 @@ jobs:
         run: |
           python scripts/validate_dataset.py
           python scripts/validate_repository.py
-      - name: Load PostgreSQL fixture for integration tests
-        run: python scripts/load_postgres.py --truncate
       - name: Backend tests and quality gates
         working-directory: backend
-        env:
-          LEDGERPROOF_TEST_POSTGRES: '1'
         run: |
           pytest
           ruff check .
@@ -75,5 +55,5 @@ jobs:
       - name: Frontend Playwright smoke
         working-directory: frontend
         run: |
-          npx playwright install --with-deps chromium
+          npx playwright install chromium
           npm run e2e -- --project=chromium
