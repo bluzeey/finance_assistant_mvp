@@ -2,9 +2,11 @@
 
 ## Local services
 
+Docker orchestration is intentionally not part of this repository. Start PostgreSQL with your preferred local or hosted setup, create a `ledgerproof` database, and set `DATABASE_URL` in `.env`.
+
 ```bash
 cp .env.example .env
-docker compose up -d postgres redis
+# edit DATABASE_URL if your PostgreSQL credentials differ
 python -m pip install -r requirements-tools.txt
 python scripts/load_postgres.py --truncate
 python scripts/validate_dataset.py
@@ -51,7 +53,7 @@ Do not patch CSV rows manually without updating the generator. Add or modify gen
 
 Record:
 
-- commit, dataset row counts, hardware/container limits;
+- commit, dataset row counts, hardware/environment limits;
 - exact query name/plan and parameters class;
 - indexes/views;
 - warm/cold protocol;
@@ -63,6 +65,6 @@ Record:
 
 - model unavailable → deterministic-supported questions may proceed; otherwise safe interpretation error;
 - database timeout → no number, error receipt/problem response;
-- Redis/Celery unavailable → core synchronous answers continue; async export/evaluation reports degraded;
+- background worker/cache unavailable → core synchronous answers continue; async export/evaluation reports degraded;
 - stale context → 409 and frontend reconciliation;
 - export mismatch → fail and regenerate from receipt snapshot, never serve divergent file.

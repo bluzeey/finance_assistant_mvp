@@ -887,7 +887,7 @@ Field-level parser accuracy plus end-to-end exact answer/refusal/source accuracy
 
 ### Phase 0 — contracts and data
 
-Validate fixtures, freeze semantics/contracts, start PostgreSQL/Redis, establish CI and agent rules.
+Validate fixtures, freeze semantics/contracts, prepare a PostgreSQL connection, establish CI and agent rules.
 
 ### Phase 1 — deterministic core
 

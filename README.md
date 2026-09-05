@@ -27,7 +27,7 @@ The repository is deliberately more than a feature brief. It contains a determin
 | Edge cases | Ambiguous aliases, partial reconciliation, credits, reversals, duplicates, missing links, nulls, stale data, and prompt injection inside record text |
 | Grounding | QueryPlan, QueryState, ComputedFacts, AnswerReceipt, problem-details, OpenAPI, and semantic metric contracts |
 | Evaluation | 22 gold single-turn cases, multi-turn conversations, expected aggregates, edge-case manifest, and model scorecard template |
-| Engineering | PostgreSQL schema/views/indexes, seed generator, loader, fixture validator, repository validator, Docker services, CI, and dependency-ordered backlog |
+| Engineering | PostgreSQL schema/views/indexes, seed generator, loader, fixture validator, repository validator, CI, and dependency-ordered backlog |
 | Research | Competitor and finance-user research report in Markdown and DOCX |
 
 ## Read these first
@@ -69,11 +69,13 @@ python scripts/validate_dataset.py
 
 The seed is fixed. Regeneration should be byte-stable unless the generator or schema intentionally changes.
 
-## Start PostgreSQL and Redis
+## Prepare PostgreSQL
+
+LedgerProof no longer ships Docker orchestration. Start PostgreSQL using your preferred local or hosted setup, create a `ledgerproof` database, then point `DATABASE_URL` at it.
 
 ```bash
 cp .env.example .env
-docker compose up -d postgres redis
+# edit DATABASE_URL if your PostgreSQL credentials differ
 python -m pip install -r requirements-tools.txt
 python scripts/load_postgres.py --truncate
 ```

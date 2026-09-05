@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: validate generate services-up services-down load-db repo-check backend-test frontend-test bundle
+.PHONY: validate generate load-db repo-check backend-test frontend-test bundle
 
 validate:
 	$(PYTHON) scripts/validate_dataset.py
@@ -9,12 +9,6 @@ validate:
 generate:
 	$(PYTHON) scripts/generate_dataset.py
 	$(PYTHON) scripts/validate_dataset.py
-
-services-up:
-	docker compose up -d postgres redis
-
-services-down:
-	docker compose down
 
 load-db:
 	$(PYTHON) scripts/load_postgres.py --truncate
